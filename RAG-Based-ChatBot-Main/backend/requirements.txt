@@ -37,3 +37,8 @@ beautifulsoup4==4.12.3
 # 7. Utilities & Testing
 pytest==8.3.4
 pytest-asyncio==0.25.0
+
+# 8. LangChain Orchestration & Ollama Integration (Selective Generation Layer)
+langchain-core==1.6.9
+langchain-ollama==1.1.0
+

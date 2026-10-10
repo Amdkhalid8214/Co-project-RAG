@@ -27,6 +27,9 @@ class OllamaClient:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_gpu": 99,
+                "num_thread": getattr(settings, "LLM_NUM_THREADS", 8),
+                "num_ctx": getattr(settings, "LLM_NUM_CTX", 2048),
             }
         }
         if system:
@@ -58,12 +61,16 @@ class OllamaClient:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_gpu": 99,
+                "num_thread": getattr(settings, "LLM_NUM_THREADS", 8),
+                "num_ctx": getattr(settings, "LLM_NUM_CTX", 2048),
             }
         }
         if system:
             payload["system"] = system
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        client_timeout = getattr(settings, "LLM_TIMEOUT", 180.0)
+        async with httpx.AsyncClient(timeout=client_timeout) as client:
             try:
                 async with client.stream("POST", url, json=payload) as resp:
                     resp.raise_for_status()
@@ -78,7 +85,17 @@ class OllamaClient:
                         except json.JSONDecodeError:
                             continue
             except Exception as e:
+                err_str = str(e)
                 logger.error(f"Ollama stream error: {e}")
-                yield f"\n[Generation error: {e}]"
+                if "not found" in err_str.lower():
+                    yield f"\n[Ollama error: Model '{self.model}' not found. Please run 'ollama pull {self.model}']"
+                elif "memory" in err_str.lower() or "cuda" in err_str.lower():
+                    yield f"\n[Ollama resource error: Insufficient memory/VRAM to load '{self.model}'.]"
+                elif "timeout" in err_str.lower() or "timed out" in err_str.lower():
+                    yield f"\n[Ollama timeout error: Request to '{self.model}' timed out.]"
+                elif "connect" in err_str.lower():
+                    yield f"\n[Ollama connection error: Could not reach Ollama at {self.base_url}.]"
+                else:
+                    yield f"\n[Generation error: {e}]"
 
 ollama_client = OllamaClient()

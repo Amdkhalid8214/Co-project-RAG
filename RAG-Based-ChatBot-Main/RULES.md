@@ -44,7 +44,7 @@
 
 ### Rule 3.1: Zero External API Cost
 - The system must remain fully operational without requiring paid API keys (no OpenAI, Anthropic, or Pinecone keys required).
-- The default LLM is **Ollama with Qwen 2.5 1.5B** (`qwen2.5:1.5b`).
+- The default LLM is **Ollama with Qwen 2.5 7B** (`qwen2.5:7b`).
 - The default embedding model is **FastEmbed BGE-Small** (`BAAI/bge-small-en-v1.5`, 384 dimensions).
 
 ### Rule 3.2: Resilient Local Fallbacks

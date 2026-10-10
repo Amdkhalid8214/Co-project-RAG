@@ -70,25 +70,34 @@ class RetrievalPipeline:
                 ranking_lists.append(b_hits)
                 all_bm25_results.extend(b_hits)
 
+        total_retrieved = len(all_vector_results) + len(all_bm25_results)
+        logger.info(f"[RETRIEVAL] Retrieved candidates: {total_retrieved} (vector: {len(all_vector_results)}, bm25: {len(all_bm25_results)})")
+
         if not ranking_lists:
+            logger.info("[RETRIEVAL] No candidates retrieved from vector or lexical stores")
             return []
 
         # Step 8: Hybrid Fusion
         if fusion_method == "weighted":
             fused = weighted_score_fusion(all_vector_results, all_bm25_results, alpha=alpha)
+            logger.info(f"[FUSION] Weighted fusion candidates: {len(fused)}")
         else:
             fused = reciprocal_rank_fusion(ranking_lists, k=settings.RRF_K)
+            logger.info(f"[RRF] Fused candidates: {len(fused)}")
 
         # Step 9: Deduplication
         deduped = deduplicate_chunks(fused, similarity_threshold=settings.DEDUP_SIMILARITY_THRESHOLD)
 
-        # Step 10: Cross-Encoder Reranker on top ~40
-        top_candidates = deduped[:40]
-        rescored = await asyncio.to_thread(reranker.rerank, primary_query, top_candidates, 40)
+        # Step 10: Cross-Encoder Reranker on top ~15
+        top_candidates = deduped[:15]
+        rescored = await asyncio.to_thread(reranker.rerank, primary_query, top_candidates, 15)
+        logger.info(f"[RERANK] Candidates reranked: {len(top_candidates)}")
 
         # Step 11: Top-K Selection & Score Thresholding
         filtered = [c for c in rescored if c.get("score", 0.0) >= score_threshold]
+        logger.info(f"[THRESHOLD] Accepted: {len(filtered)} (threshold={score_threshold})")
         final_top = filtered[:top_k]
+        logger.info(f"[CONTEXT] Final context chunks: {len(final_top)} (top_k={top_k})")
 
         return final_top
 

@@ -42,8 +42,8 @@
 
 ### Gotcha 2.4: Ollama 404 Model Not Found
 - **Symptom:** Generation requests returned HTTP 404 from Ollama.
-- **Root Cause:** Container `docuchat_ollama` on port 11434 did not have `qwen2.5:1.5b` pre-pulled.
-- **Fix:** Executed `docker exec docuchat_ollama ollama pull qwen2.5:1.5b` and added automated model readiness verification.
+- **Root Cause:** Container `docuchat_ollama` on port 11434 did not have `qwen2.5:7b` pre-pulled.
+- **Fix:** Executed `docker exec docuchat_ollama ollama pull qwen2.5:7b` (or `ollama pull qwen2.5:7b`) and added automated model readiness verification.
 
 ### Gotcha 2.5: Windows Console `cp1252` Encoding Error
 - **Symptom:** Python terminal crashed with `UnicodeEncodeError: 'charmap' codec can't encode character '\u025b'`.

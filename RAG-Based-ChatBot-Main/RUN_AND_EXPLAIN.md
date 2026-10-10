@@ -61,8 +61,10 @@ Open your terminal in `RAG-Based-ChatBot-Main/`:
 # 1. Start Docker containers (Qdrant, Docling, Ollama)
 docker compose up -d
 
-# 2. Pull the default small LLM inside Ollama (one-time setup)
-docker exec -it docuchat_ollama ollama pull qwen2.5:1.5b
+# 2. Pull the default LLM inside Ollama (one-time setup)
+docker exec -it docuchat_ollama ollama pull qwen2.5:7b
+# Or if running Ollama natively:
+# ollama pull qwen2.5:7b
 ```
 
 #### Terminal 2: Backend (FastAPI on Port 5000)
@@ -106,7 +108,7 @@ To confirm all services are running properly:
   {
     "status": "healthy",
     "app": "DocuChat Production RAG",
-    "llm_model": "qwen2.5:1.5b",
+    "llm_model": "qwen2.5:7b",
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "router_mode": "hybrid"
   }
@@ -205,7 +207,7 @@ Upload File ➔ Parse Elements & BBoxes ➔ Structural Chunking ➔ Vector & BM2
 ### Step 8: Grounded Generation (Streaming SSE)
 - Handled by: [`llm/generator.py`](file:///C:/Users/AMD/OneDrive/Desktop/Git%20rag/RAG-Based-ChatBot-Main/backend/llm/generator.py)
 1. Injects full chunk contexts (up to 3,500 characters) into the prompt.
-2. Instructs the local LLM (`qwen2.5:1.5b`):
+2. Instructs the local LLM (`qwen2.5:7b`):
    - Answer strictly from the sources.
    - Provide exhaustive lists for skill/project questions without truncation.
    - Append inline citations `[1]`.
@@ -280,7 +282,7 @@ sequenceDiagram
 | **Vector DB** | Qdrant | `1.12.1` | Dense semantic vector search with embedded disk fallback |
 | **Dense Embeddings** | FastEmbed (`bge-small-en-v1.5`) | `0.4.2` | 384-dimensional ONNX embeddings without PyTorch overhead |
 | **Sparse Lexical DB** | BM25Plus (`rank-bm25`) | `0.2.2` | Non-negative keyword search calibrated for small/large corpora |
-| **Local LLM** | Qwen 2.5 (1.5B via Ollama) | `qwen2.5:1.5b` | Small-model factual extraction, 32k context, fast inference |
+| **Local LLM** | Qwen 2.5 (7B via Ollama) | `qwen2.5:7b` | Advanced factual extraction, deep reasoning, 32k context |
 | **Live Web Search** | Yahoo Finance + DuckDuckGo + Wiki | Custom | Zero-cost, real-time market data & live encyclopedic context |
 
 ---

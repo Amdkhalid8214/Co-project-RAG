@@ -765,31 +765,15 @@ export default function App() {
       setViewerDoc(doc);
     }
 
-    setCurrentPage(citation.page || 1);
+    const targetPage =
+      (citation.bboxes && citation.bboxes.length > 0 && citation.bboxes[0].page) ||
+      citation.page ||
+      citation.page_number ||
+      1;
+    setCurrentPage(targetPage);
 
     const allBoxes = citation.bboxes || [];
-    let focusedBoxes = allBoxes.slice(0, 1);
-
-    if (allBoxes.length > 1 && answerContext) {
-      const stopWords = new Set([
-        "what", "is", "the", "in", "my", "of", "and", "a", "an", "to", "for", "with",
-        "on", "at", "by", "from", "this", "that", "are", "was", "were", "tell", "give",
-      ]);
-      const words = answerContext.toLowerCase().match(/[a-z0-9%]+/g) || [];
-      const keywords = words.filter((w) => w.length > 1 && !stopWords.has(w));
-
-      if (keywords.length > 0) {
-        const matchingBoxes = allBoxes.filter((box) => {
-          const bText = (box.text || "").toLowerCase();
-          return keywords.some((kw) => bText.includes(kw));
-        });
-        if (matchingBoxes.length > 0) {
-          focusedBoxes = matchingBoxes.slice(0, 1);
-        }
-      }
-    }
-
-    setActiveHighlights(focusedBoxes);
+    setActiveHighlights(allBoxes);
   };
 
   // Render PDF Page onto HTML5 Canvas

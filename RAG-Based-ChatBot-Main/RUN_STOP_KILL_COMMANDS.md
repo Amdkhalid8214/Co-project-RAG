@@ -210,7 +210,7 @@ Stop-Process -Name "node" -Force -ErrorAction SilentlyContinue
 
 ## 🦙 5. Ollama (LLM Service) Commands
 
-Ollama hosts the local LLM model (`qwen2.5:1.5b`) on port `11434`.
+Ollama hosts the local LLM model (`qwen2.5:7b`) on port `11434`.
 
 ### 🚀 RUN Ollama
 * **If using Docker (Standard):**
@@ -225,10 +225,10 @@ Ollama hosts the local LLM model (`qwen2.5:1.5b`) on port `11434`.
 ### 📥 PULL THE MODEL (One-Time Setup)
 ```bash
 # If Ollama is inside Docker:
-docker exec -it docuchat_ollama ollama pull qwen2.5:1.5b
+docker exec -it docuchat_ollama ollama pull qwen2.5:7b
 
 # If Ollama is installed directly on Windows:
-ollama pull qwen2.5:1.5b
+ollama pull qwen2.5:7b
 ```
 
 ### 🔍 CHECK OLLAMA MODELS
@@ -319,7 +319,7 @@ docker compose up -d qdrant
 **Fix:**
 ```powershell
 docker compose up -d ollama
-docker exec -it docuchat_ollama ollama pull qwen2.5:1.5b
+docker exec -it docuchat_ollama ollama pull qwen2.5:7b
 ```
 
 ### Error 5: `node_modules` or `npm start` fails

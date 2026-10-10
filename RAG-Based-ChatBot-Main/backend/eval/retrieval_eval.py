@@ -20,7 +20,7 @@ from backend.retrieval.dedup import deduplicate_chunks
 SAMPLE_EVAL_DATASET = [
     {
         "query": "What is the primary LLM model and context window used in DocuChat?",
-        "ground_truth_keywords": ["qwen2.5:1.5b", "1.5b", "context window"],
+        "ground_truth_keywords": ["qwen2.5:7b", "7b", "qwen2.5:1.5b", "1.5b", "context window"],
         "expected_chunk_id": "chunk_arch_01"
     },
     {

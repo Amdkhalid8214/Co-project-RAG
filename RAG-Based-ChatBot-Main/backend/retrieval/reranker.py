@@ -15,8 +15,10 @@ class Reranker:
         if self._model is None and self.enabled:
             try:
                 from sentence_transformers import CrossEncoder
-                logger.info(f"Loading CrossEncoder reranker model: {self.model_name}")
-                self._model = CrossEncoder(self.model_name, max_length=512)
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                logger.info(f"Loading CrossEncoder reranker model: {self.model_name} on device: {device}")
+                self._model = CrossEncoder(self.model_name, max_length=512, device=device)
             except Exception as e:
                 logger.warning(f"Could not load CrossEncoder model {self.model_name} ({e}). Falling back to fusion scores.")
                 self.enabled = False
@@ -26,7 +28,7 @@ class Reranker:
         self,
         query: str,
         candidates: List[Dict[str, Any]],
-        top_n: int = 40
+        top_n: int = 15
     ) -> List[Dict[str, Any]]:
         """
         Rescores top candidate passages using Cross-Encoder.
@@ -58,14 +60,35 @@ class Reranker:
             except Exception as e:
                 logger.error(f"CrossEncoder reranking error: {e}")
 
-        # Fallback: Normalize fusion scores to [0, 1] using max-scaling (preserves valid candidate chunks)
+        # Fallback: Normalize fusion scores with query keyword overlap validation
         if subset:
+            import re
+            stop_words = {
+                'the', 'is', 'in', 'of', 'and', 'a', 'an', 'to', 'for', 'with', 'on', 'at',
+                'by', 'from', 'this', 'that', 'are', 'was', 'were', 'document', 'resume',
+                'what', 'write', 'how', 'when', 'where', 'who', 'why', 'can', 'you'
+            }
+            q_words = [w for w in re.findall(r"\b\w+\b", query.lower()) if len(w) > 2 and w not in stop_words]
             max_s = max(it.get("score", 0.0) for it in subset)
             for item in subset:
                 raw_s = item.get("score", 0.0)
-                norm_s = (raw_s / max_s) if max_s > 0 else 1.0
-                item["rerank_score"] = norm_s
-                item["score"] = norm_s
+                base_norm = (raw_s / max_s) if max_s > 0 else 0.0
+
+                text_lower = item.get("text", "").lower()
+                overlap = sum(1 for w in q_words if w in text_lower)
+                overlap_ratio = overlap / max(len(q_words), 1) if q_words else 1.0
+
+                # If query has specific content words and NONE are in the candidate chunk, penalize heavily
+                # so it falls below SCORE_THRESHOLD (0.25)
+                if q_words and overlap == 0:
+                    final_s = min(base_norm * 0.1, 0.15)
+                else:
+                    final_s = base_norm * (0.5 + 0.5 * overlap_ratio)
+
+                item["rerank_score"] = final_s
+                item["score"] = final_s
+
+            subset.sort(key=lambda x: x["score"], reverse=True)
         return subset
 
 reranker = Reranker()

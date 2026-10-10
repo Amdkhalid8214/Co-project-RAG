@@ -6,6 +6,11 @@ from backend.llm.client import ollama_client
 
 logger = logging.getLogger(__name__)
 
+PRONOUN_PATTERN = re.compile(
+    r"\b(it|its|he|him|his|she|her|hers|they|them|their|theirs|this|that|these|those|former|latter|the same)\b",
+    re.IGNORECASE
+)
+
 class QueryRewriter:
     def __init__(self):
         pass
@@ -20,15 +25,16 @@ class QueryRewriter:
         Returns list of queries: [standalone_query, alt_1, alt_2].
         """
         clean_q = question.strip()
-        if not chat_history:
-            # If no history, generate quick variations or return standalone
+        # Fast bypass: If no chat history or the question has no pronouns/anaphora,
+        # it is already standalone. Skip the extra synchronous LLM call to save 10-15s latency on CPU.
+        if not chat_history or not PRONOUN_PATTERN.search(clean_q):
             return [
                 clean_q,
                 f"{clean_q} details",
                 f"{clean_q} overview"
             ]
 
-        # Format compact history (last 3 turns max to keep context window small for Qwen 1.5B)
+        # Format compact history (last 3 turns to keep prompt focused and latency low)
         recent_turns = chat_history[-3:]
         history_lines = []
         for msg in recent_turns:

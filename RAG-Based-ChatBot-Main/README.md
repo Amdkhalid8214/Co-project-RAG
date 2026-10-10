@@ -3,7 +3,7 @@
 # 📑 DocuChat AI
 ### **Enterprise-Grade Hybrid RAG & Visual Document Intelligence Platform**
 
-*An end-to-end, production-ready Document RAG platform featuring visual bounding-box provenance highlighting, hybrid dense/sparse retrieval with Reciprocal Rank Fusion (RRF), live web knowledge fallback, and grounded LLM generation powered by Ollama (`qwen2.5:1.5b`) & Qdrant.*
+*An end-to-end, production-ready Document RAG platform featuring visual bounding-box provenance highlighting, hybrid dense/sparse retrieval with Reciprocal Rank Fusion (RRF), live web knowledge fallback, and grounded LLM generation powered by Ollama (`qwen2.5:7b`) & Qdrant.*
 
 ---
 
@@ -69,7 +69,7 @@ flowchart TD
 
     subgraph Generation["3. Grounded Generation & UI Visualization"]
         TopFilter --> PromptBuilder["Budgeted Prompt Builder<br/>Strict Grounded Citations"]
-        PromptBuilder --> LLMEngine["Ollama LLM Engine<br/>qwen2.5:1.5b @ temp=0.1"]
+        PromptBuilder --> LLMEngine["Ollama LLM Engine<br/>qwen2.5:7b @ temp=0.1"]
         LLMEngine --> SSEStream["Server-Sent Events Stream<br/>Tokens + Provenance Bounding Boxes"]
         SSEStream --> ReactUI["3-Panel Interface<br/>Sidebar | Live Chat | PDF Viewer"]
         ReactUI --> CanvasHighlight["PDF.js Canvas Highlighting<br/>Auto-Scroll to Page & Draw BBox Overlay"]
@@ -166,7 +166,7 @@ Access the application:
 - **Node.js 18+** & **npm**
 - **Ollama**: Download from [ollama.ai](https://ollama.ai/) and pull the model:
   ```bash
-  ollama pull qwen2.5:1.5b
+  ollama pull qwen2.5:7b
   ```
 - **Qdrant**: Run via lightweight Docker:
   ```bash
@@ -229,9 +229,10 @@ DATABASE_URL=sqlite+aiosqlite:///./data/rag_app.db
 
 # LLM Engine (Ollama)
 LLM_BASE_URL=http://localhost:11434
-LLM_MODEL=qwen2.5:1.5b
+LLM_MODEL=qwen2.5:7b
 LLM_TEMPERATURE=0.1
 LLM_MAX_TOKENS=1024
+LLM_TIMEOUT=180.0
 
 # Embeddings (BAAI SOTA Dense)
 EMBEDDING_PROVIDER=sentence-transformers
@@ -255,6 +256,83 @@ DEDUP_SIMILARITY_THRESHOLD=0.88   # Jaccard 3-gram deduplication threshold
 FINAL_TOP_K=5                     # Context snippets passed to LLM
 SCORE_THRESHOLD=0.25              # Minimum candidate relevance cut-off
 ```
+
+---
+
+## 🦜️ LangChain Integration
+
+DocuChat AI incorporates **LangChain** as a focused, well-isolated orchestration and generation component without sacrificing custom RAG control.
+
+```
+                    USER QUERY
+                         ↓
+                   FastAPI API
+                         ↓
+               CUSTOM RAG PIPELINE
+                         ↓
+                 Hybrid Retrieval
+                   /           \
+              Qdrant          BM25Plus
+                   \           /
+                        RRF
+                         ↓
+                   Deduplication
+                         ↓
+                   Cross Encoder
+                         ↓
+                     Threshold
+                         ↓
+                       Top-K
+                         ↓
+                 Context Builder
+                         ↓
+               ┌───────────────────┐
+               │     LANGCHAIN     │
+               │                   │
+               │ PromptTemplate    │
+               │ Message Handling  │
+               │ LLM Orchestration │
+               │ ChatOllama        │
+               └─────────┬─────────┘
+                         ↓
+                   Qwen 2.5 7B
+                         ↓
+                 Grounded Response
+                         ↓
+              Custom Citation Logic
+                         ↓
+                 Bounding Boxes
+                         ↓
+                      React
+                         ↓
+                     PDF.js
+                         ↓
+                 Canvas Highlight
+```
+
+### Why LangChain was added
+LangChain is used selectively for:
+- **Prompt Templates (`ChatPromptTemplate`)**: Standardized, reusable grounded generation prompts cleanly separating system grounding instructions, structured document context blocks, and user queries.
+- **Message Abstractions (`SystemMessage`, `HumanMessage`)**: Clean message handling enforcing strict anti-hallucination boundaries and source fidelity.
+- **Ollama / Qwen Integration (`ChatOllama`)**: Direct orchestration with local `qwen2.5:7b` via the official `langchain-ollama` integration layer.
+- **Standardized Model Streaming**: Native asynchronous token streaming feeding directly into the application's Server-Sent Events (SSE) pipeline.
+
+### Why the entire RAG pipeline was NOT converted
+DocuChat AI intentionally maintains custom, first-principles implementations for:
+- **Docling & Layout-Aware Parsing**: Preserving heading paths, tables, lists, and raw coordinate bounding boxes.
+- **Structure-Aware Chunking**: Token-budgeted sliding window chunking with provenance and bounding-box tracking.
+- **Dense Vector Search (Qdrant)** & **Sparse Lexical Search (BM25Plus)**: Independent multi-modal indexing.
+- **Reciprocal Rank Fusion (RRF)** & **Weighted Score Fusion**: Fine-grained hybrid fusion under full programmatic control.
+- **Candidate Deduplication**: Multi-stage chunk ID and Jaccard n-gram similarity filtering.
+- **Cross-Encoder Reranking (`bge-reranker-base`)**: Deep semantic passage scoring and score thresholding.
+- **Context Expansion & Selection**: Top-K context budgeting with provenance preservation.
+- **Citation Refinement & Bounding Box Matching**: Exact line-level bounding box selection based on answer-to-text token overlap.
+- **Synchronized Canvas Highlighting**: PDF.js golden bounding-box rendering on the React frontend.
+
+Maintaining this boundary provides:
+1. **Granular Control**: Every retrieval and ranking stage is observable, debuggable, and tunable without opaque abstraction overhead.
+2. **First-Principles Retrieval Intelligence**: Custom RAG controls the evidence; LangChain orchestrates the LLM interaction.
+3. **Decoupled Architecture**: Removing or swapping LangChain requires modifying only the generation adapter, leaving the retrieval engine completely intact.
 
 ---
 

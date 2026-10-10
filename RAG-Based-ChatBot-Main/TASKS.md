@@ -9,7 +9,7 @@
 - [x] Configure FastAPI backend structure with async SQLAlchemy and SQLite (`rag_app.db`).
 - [x] Configure Qdrant vector database with embedded fallback (`./data/qdrant_storage`).
 - [x] Integrate FastEmbed ONNX runtime with `BAAI/bge-small-en-v1.5` (384 dimensions).
-- [x] Set up Ollama client with `qwen2.5:1.5b` model on `http://localhost:11434`.
+- [x] Set up Ollama client with `qwen2.5:7b` model on `http://localhost:11434`.
 - [x] Build Docker Compose configuration for multi-service deployment.
 
 ### Phase 2: Document Ingestion & Structure Extraction

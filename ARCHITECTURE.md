@@ -42,7 +42,7 @@ graph TB
 
     subgraph Generation ["Generation & Live Knowledge"]
         LiveSearch["Live Web Search (Yahoo Finance, DDG, Wiki)"]
-        LLM["Ollama Engine (Qwen 2.5: 1.5B)"]
+        LLM["Ollama Engine (Qwen 2.5: 7B)"]
         BBoxRefiner["Global Best-Box Scoring Refiner"]
     end
 
@@ -160,11 +160,33 @@ This preserves all chunks that exceed `score_threshold` (0.25).
 
 ---
 
-## 5. Grounded Generation & Precision Highlighting
+## 5. Grounded Generation, LangChain Orchestration & Precision Highlighting
 
-### 5.1 Prompt Construction (`llm/generator.py`)
-- Up to 3,500 characters per chunk are passed into context.
-- The prompt instructs the model to provide exhaustive lists (e.g. all technical skill categories) and cite inline sources using `[1]`.
+### 5.1 LangChain Orchestration Layer (`llm/langchain_adapter.py`)
+DocuChat AI incorporates LangChain as an isolated orchestration component for LLM generation:
+- **LangChain Document Mapping:** Custom RAG chunks are converted into `langchain_core.documents.Document` objects while strictly preserving all structural metadata:
+  ```python
+  Document(
+      page_content=chunk_text,
+      metadata={
+          "document_id": doc_id,
+          "document_name": doc_name,
+          "chunk_id": chunk_id,
+          "page_number": page,
+          "section": section_str,
+          "heading_path": heading_path,
+          "bbox": bboxes,
+          "text": chunk_text,
+          "source": f"[{source_num}]",
+          "retrieval_score": score,
+          "reranker_score": reranker_score,
+      }
+  )
+  ```
+- **Structured Message Prompts:**
+  - `SystemMessage`: Enforces strict anti-hallucination rules, source grounding, and refusal semantics when context is insufficient.
+  - `HumanMessage`: Packages numbered document context blocks with section headings, page numbers, and the user query.
+- **ChatOllama Engine (`langchain_ollama`):** Connects to local `qwen2.5:7b` (configurable via `LLM_MODEL`) with asynchronous token streaming (`astream`) feeding directly into FastAPI's Server-Sent Events (SSE) generator.
 
 ### 5.2 Global Best-Box Selection (`refine_citations_for_answer`)
 When the LLM finishes generating the answer:
@@ -172,6 +194,7 @@ When the LLM finishes generating the answer:
 2. Numeric values, percentages, and skill keywords receive weighted boosts:
    $$\text{Score}(B) = \sum_{w \in \text{Ans}} \mathbb{I}(w \in B) \times 3 + \sum_{n \in \text{Digits}} \mathbb{I}(n \in B) \times 6$$
 3. The single highest-scoring bounding box is assigned to the citation. All non-relevant boxes are pruned.
+
 
 ---
 

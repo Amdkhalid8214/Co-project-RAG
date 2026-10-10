@@ -91,11 +91,11 @@ class LiveWebSearch:
         clean_q = re.sub(r"[^\w\s-]", " ", query).strip()
         results = []
 
-        # Try DDG HTML
+        # Try DDG HTML with fast 1.5s timeout
         try:
             url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(clean_q)}"
             req = urllib.request.Request(url, headers=self.headers)
-            with urllib.request.urlopen(req, timeout=4) as resp:
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
                 snippets = re.findall(r'class="result__snippet[^"]*"[^>]*>(.*?)</a>', html, re.DOTALL)
                 for s in snippets[:max_results]:
@@ -108,12 +108,12 @@ class LiveWebSearch:
         if results:
             return results
 
-        # Try DDG Lite
+        # Try DDG Lite with fast 1.5s timeout
         try:
             url = "https://lite.duckduckgo.com/lite/"
             data = urllib.parse.urlencode({"q": clean_q}).encode("utf-8")
             req = urllib.request.Request(url, data=data, headers=self.headers)
-            with urllib.request.urlopen(req, timeout=4) as resp:
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
                 snippets = re.findall(r'<td class="result-snippet"[^>]*>(.*?)</td>', html, re.DOTALL)
                 for s in snippets[:max_results]:
@@ -130,7 +130,7 @@ class LiveWebSearch:
         url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(query)}&utf8=&format=json"
         req = urllib.request.Request(url, headers={"User-Agent": "DocuChatAI/2.0"})
         try:
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 results = data.get("query", {}).get("search", [])
                 snippets = []
@@ -148,6 +148,12 @@ class LiveWebSearch:
         Gathers live real-time information for movies, stocks, sports, politics, etc.
         Returns a concise context string to feed to the LLM.
         """
+        q_lower = query.lower()
+        # Fast bypass for date/time/temporal/clock/greeting questions
+        date_keywords = ["today", "date", "year", "month", "what day", "what time", "current time", "clock", "who are you", "what can you do"]
+        if any(k in q_lower for k in date_keywords):
+            return ""
+
         context_parts = []
 
         # 1. Check live stock market data

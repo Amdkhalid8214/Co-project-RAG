@@ -20,6 +20,20 @@ from backend.chunking.structure_chunker import Chunk
 
 logger = logging.getLogger(__name__)
 
+STOP_WORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
+    "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but",
+    "by", "can", "did", "do", "does", "doing", "don", "down", "during", "each", "few", "for",
+    "from", "further", "had", "has", "have", "having", "he", "her", "here", "hers", "herself",
+    "him", "himself", "his", "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just",
+    "me", "more", "most", "my", "myself", "no", "nor", "not", "now", "of", "off", "on", "once",
+    "only", "or", "other", "our", "ours", "ourselves", "out", "over", "own", "same", "she",
+    "should", "so", "some", "such", "than", "that", "the", "their", "theirs", "them", "themselves",
+    "then", "there", "these", "they", "this", "those", "through", "to", "too", "under", "until",
+    "up", "very", "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom",
+    "why", "with", "would", "you", "your", "yours", "yourself", "yourselves"
+}
+
 def tokenize(text: str) -> List[str]:
     """Simple alphanumeric tokenizer with lowercase normalization."""
     return re.findall(r"\b\w+\b", text.lower())
@@ -70,7 +84,9 @@ class BM25Index:
         doc_ids: Optional[List[str]] = None,
         limit: int = 30
     ) -> List[Dict[str, Any]]:
-        tokens = tokenize(query)
+        all_tokens = tokenize(query)
+        content_tokens = [t for t in all_tokens if t not in STOP_WORDS]
+        tokens = content_tokens if content_tokens else all_tokens
         if not tokens:
             return []
 

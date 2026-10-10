@@ -40,11 +40,14 @@ class Settings(BaseSettings):
     DOCLING_URL: str = "http://localhost:5001"
 
     # LLM Settings (Ollama with Qwen)
-    LLM_BASE_URL: str = "http://localhost:11434"
-    LLM_MODEL: str = "qwen2.5:1.5b"
-    LLM_TEMPERATURE: float = 0.1
-    LLM_MAX_TOKENS: int = 1024
-    
+    LLM_BASE_URL: str = "http://127.0.0.1:11434"
+    LLM_MODEL: str = "qwen2.5:7b"
+    LLM_TEMPERATURE: float = 0.0
+    LLM_MAX_TOKENS: int = 512
+    LLM_TIMEOUT: float = 180.0
+    LLM_NUM_THREADS: int = 8
+    LLM_NUM_CTX: int = 8192
+
     # Embeddings
     # Default to BAAI/bge-small-en-v1.5 (384 dim). Can switch to nomic-embed-text or sentence-transformers
     EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"
@@ -62,7 +65,7 @@ class Settings(BaseSettings):
     RRF_K: int = 60
     FUSION_ALPHA: float = 0.5
     DEDUP_SIMILARITY_THRESHOLD: float = 0.88
-    FINAL_TOP_K: int = 5
+    FINAL_TOP_K: int = 3
     SCORE_THRESHOLD: float = 0.25
 
     # Chunking

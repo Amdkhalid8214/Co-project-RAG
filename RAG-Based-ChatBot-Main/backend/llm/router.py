@@ -6,7 +6,7 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 GREETINGS_PATTERN = re.compile(
-    r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|howdy|sup|who\s+are\s+you|what\s+can\s+you\s+do|help|thanks|thank\s+you|bye|goodbye)[.?!]*$",
+    r"^(hi|hello|hey|good\s+(morning|afternoon|evening)|howdy|sup|who\s+are\s+you|what\s+can\s+you\s+do|help|thanks|thank\s+you|bye|goodbye|what\s+is\s+(today'?s?\s+)?(the\s+)?(date|day|time|month|year)|what\s+day\s+is\s+(today|it)|what\s+time\s+is\s+it|current\s+(date|time|year|month))[.?!]*$",
     re.IGNORECASE
 )
 
