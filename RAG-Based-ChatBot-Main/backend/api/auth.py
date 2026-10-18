@@ -3,13 +3,22 @@ import secrets
 import hashlib
 import hmac
 import logging
-from typing import Optional
-from datetime import datetime
+from typing import Optional, Dict, Any
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
+import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
+try:
+    from argon2 import PasswordHasher
+    from argon2.exceptions import VerifyMismatchError
+    hasher = PasswordHasher()
+except ImportError:
+    hasher = None
+
+from backend.config import settings
 from backend.db.session import get_db, AsyncSessionLocal
 from backend.db.models import UserModel, UserSessionModel
 
@@ -17,7 +26,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
-    if not salt:
+    """Hashes a password using Argon2id if available, otherwise PBKDF2-HMAC-SHA256."""
+    if hasher:
+        try:
+            argon_hash = hasher.hash(password)
+            return argon_hash, "argon2id"
+        except Exception:
+            pass
+            
+    if not salt or salt == "argon2id":
         salt = os.urandom(16).hex()
     pwd_hash = hashlib.pbkdf2_hmac(
         "sha256",
@@ -28,15 +45,45 @@ def hash_password(password: str, salt: Optional[str] = None) -> tuple[str, str]:
     return pwd_hash, salt
 
 def verify_password(password: str, stored_hash: str, salt: str) -> bool:
+    """Verifies password using Argon2id or legacy PBKDF2."""
+    if stored_hash.startswith("$argon2"):
+        if hasher:
+            try:
+                return hasher.verify(stored_hash, password)
+            except Exception:
+                return False
+    # Fallback to PBKDF2
     new_hash, _ = hash_password(password, salt)
     return hmac.compare_digest(new_hash, stored_hash)
 
-async def create_user_session(user_id: str, db: AsyncSession) -> str:
-    token = secrets.token_hex(32)
+from datetime import datetime, timedelta, timezone
+
+def create_jwt_token(user_id: str, username: str, role: str) -> str:
+    """Creates a signed, expiring JWT token."""
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": user_id,
+        "username": username,
+        "role": role,
+        "exp": expire,
+        "iat": now
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
+    """Decodes and validates a JWT token."""
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except Exception:
+        return None
+
+async def create_user_session(user_id: str, db: AsyncSession, username: str = "", role: str = "user") -> str:
+    token = create_jwt_token(user_id, username, role)
     session_obj = UserSessionModel(
         token=token,
         user_id=user_id,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(session_obj)
     await db.commit()
@@ -56,6 +103,17 @@ async def get_current_user_optional(
     if not token:
         return None
 
+    # First attempt JWT decoding
+    payload = decode_jwt_token(token)
+    user_id = payload.get("sub") if payload else None
+
+    if user_id:
+        user_res = await db.execute(select(UserModel).where(UserModel.id == user_id))
+        user = user_res.scalar_one_or_none()
+        if user:
+            return user
+
+    # Fallback to DB session lookup
     stmt = select(UserSessionModel).where(UserSessionModel.token == token)
     res = await db.execute(stmt)
     session_record = res.scalar_one_or_none()
@@ -138,7 +196,7 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(new_user)
 
-    token = await create_user_session(new_user.id, db)
+    token = await create_user_session(new_user.id, db, username=new_user.username, role=new_user.role)
     return {
         "message": "User registered successfully",
         "token": token,
@@ -155,7 +213,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(req.password, user.password_hash, user.salt):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = await create_user_session(user.id, db)
+    token = await create_user_session(user.id, db, username=user.username, role=user.role)
     return {
         "message": "Login successful",
         "token": token,
@@ -185,3 +243,4 @@ async def logout(
         await db.commit()
 
     return {"message": "Logged out successfully"}
+

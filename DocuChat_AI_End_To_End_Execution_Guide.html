@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DocuChat AI — End-to-End Execution Guide & File-by-File Walkthrough</title>
+<style>
+  @page {
+    size: A4;
+    margin: 12mm 14mm 14mm 14mm;
+    @bottom-right {
+      content: "Page " counter(page);
+      font-size: 8pt;
+      color: #94a3b8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+  }
+
+  *, *:before, *:after {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #1e293b;
+    background: #ffffff;
+    line-height: 1.48;
+    font-size: 8.8pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  .avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* Cover Page */
+  .cover {
+    min-height: 94vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px 8px 8px 8px;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .cover-badge {
+    display: inline-block;
+    background: #ede9fe;
+    color: #6366f1;
+    font-weight: 700;
+    font-size: 8pt;
+    padding: 5px 12px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border: 1px solid #c7d2fe;
+    margin-bottom: 14px;
+  }
+
+  .cover-title {
+    font-size: 26pt;
+    font-weight: 800;
+    line-height: 1.15;
+    color: #0f172a;
+    margin: 0 0 10px 0;
+  }
+
+  .cover-title span {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .cover-subtitle {
+    font-size: 10.2pt;
+    color: #475569;
+    font-weight: 400;
+    max-width: 680px;
+    line-height: 1.45;
+    margin-bottom: 18px;
+  }
+
+  .cover-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin: 16px 0;
+  }
+
+  .metric-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border-left: 4px solid #6366f1;
+    break-inside: avoid;
+  }
+
+  .metric-num {
+    font-size: 19pt;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1;
+  }
+
+  .metric-label {
+    font-size: 7.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  .cover-toc {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 18px 0;
+  }
+
+  .cover-toc h3 {
+    margin: 0 0 10px 0;
+    font-size: 10pt;
+    font-weight: 700;
+    color: #0f172a;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 18px;
+  }
+
+  .toc-item {
+    font-size: 8.5pt;
+    color: #334155;
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px dashed #e2e8f0;
+  }
+
+  .cover-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 14px;
+    font-size: 8pt;
+    color: #64748b;
+  }
+
+  /* Headings */
+  h2 {
+    font-size: 14.5pt;
+    font-weight: 800;
+    color: #0f172a;
+    border-bottom: 2px solid #6366f1;
+    padding-bottom: 5px;
+    margin: 22px 0 10px 0;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 14px 0 7px 0;
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  p {
+    margin: 0 0 7px 0;
+    color: #334155;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px 0;
+    font-size: 8.1pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  th, td {
+    border: 1px solid #cbd5e1;
+    padding: 5px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    background: #f1f5f9;
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 7.8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  tr:nth-child(even) td {
+    background: #f8fafc;
+  }
+
+  /* Badges & Tags */
+  .tag {
+    display: inline-block;
+    font-size: 7pt;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+
+  .tag-server { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+  .tag-model  { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+  .tag-file   { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; }
+  .tag-db     { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+  .tag-queue  { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+  .tag-tool   { background: #fef08a; color: #854d0e; border: 1px solid #fde047; }
+  .tag-ws     { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; }
+
+  /* Steps Styling */
+  .step-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 7px;
+    padding: 8px 11px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 5px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .step-title-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 9.2pt;
+  }
+
+  .step-num {
+    background: #6366f1;
+    color: #ffffff;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8.5pt;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .step-tags {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  /* File Catalog Grid */
+  .file-item {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #6366f1;
+    border-radius: 5px;
+    padding: 6px 9px;
+    margin-bottom: 6px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .file-item-name {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 8.5pt;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .file-item-desc {
+    font-size: 7.8pt;
+    color: #475569;
+    margin-top: 2px;
+    line-height: 1.35;
+  }
+
+  .file-item-deps {
+    font-size: 7.2pt;
+    color: #8b5cf6;
+    margin-top: 3px;
+  }
+
+  /* Diagrams */
+  .flowchart-diagram {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 7pt;
+    line-height: 1.32;
+    margin: 8px 0 14px 0;
+    overflow-x: auto;
+    white-space: pre;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #334155;
+  }
+
+  code {
+    background: #f1f5f9;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 8pt;
+    color: #4338ca;
+  }
+
+  .flowchart-diagram code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .callout {
+    background: #f8fafc;
+    border-left: 4px solid #6366f1;
+    padding: 7px 10px;
+    border-radius: 0 5px 5px 0;
+    margin: 8px 0;
+    font-size: 8.2pt;
+    break-inside: avoid;
+  }
+
+  .callout-purple { background: #faf5ff; border-left: 4px solid #a855f7; }
+  .callout-success { background: #f0fdf4; border-left: 4px solid #22c55e; }
+  .callout-amber { background: #fffbeb; border-left: 4px solid #f59e0b; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER PAGE ================= -->
+<div class="cover">
+  <div>
+    <div class="cover-badge">DocuChat AI System Manual &bull; Release 2.0</div>
+    <h1 class="cover-title">End-to-End Execution &<br><span>File-by-File Order Guide</span></h1>
+    <p class="cover-subtitle">
+      A comprehensive, chronological engineering walkthrough of the entire DocuChat production RAG platform:
+      what happens step by step when you upload a document, which server process runs, which background worker is
+      dispatched, which AI model executes, how hybrid retrieval fuses with cross-encoder reranking, how agentic tools
+      are evaluated, and the exact role of all 35 source code files in the repository.
+    </p>
+
+    <div class="cover-metrics">
+      <div class="metric-card">
+        <div class="metric-num">8</div>
+        <div class="metric-label">Servers & Services</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-num">4</div>
+        <div class="metric-label">AI / ML Models</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-num">35+</div>
+        <div class="metric-label">Source Code Files</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-num">100%</div>
+        <div class="metric-label">Private & Local RAG</div>
+      </div>
+    </div>
+
+    <div class="cover-toc">
+      <h3>Guide Contents & Structure</h3>
+      <div class="toc-grid">
+        <div class="toc-item"><span>1. System Topology: Servers, Services & AI Models</span><strong>Sec 1</strong></div>
+        <div class="toc-item"><span>2. Visual End-to-End Pipeline Diagrams</span><strong>Sec 2</strong></div>
+        <div class="toc-item"><span>3. Step-by-Step Order: When You Upload a Document</span><strong>Sec 3</strong></div>
+        <div class="toc-item"><span>4. Step-by-Step Order: When You Ask a Question / Chat</span><strong>Sec 4</strong></div>
+        <div class="toc-item"><span>5. Complete File-by-File Codebase Catalog</span><strong>Sec 5</strong></div>
+        <div class="toc-item"><span>6. Data Schemas, Resiliency & Quick Reference</span><strong>Sec 6</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cover-footer">
+    <div><strong>Target Repository:</strong> DocuChat AI &bull; Branch: <code>main</code> &bull; Python 3.11+ / React 18 / PostgreSQL 16 / Qdrant</div>
+    <div>Updated: October 2026 &bull; Production Architecture</div>
+  </div>
+</div>
+
+<!-- ================= SECTION 1 ================= -->
+<h2>1. System Topology: Servers, Services & AI Models</h2>
+<p>DocuChat AI operates as a unified, enterprise-grade multi-tier architecture consisting of <strong>8 distinct server processes and services</strong> and <strong>4 machine learning models</strong> working in complete orchestration.</p>
+
+<h3>1.1 The 8 Servers & Services in Execution</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 17%;">Server / Service</th>
+      <th style="width: 9%;">Port</th>
+      <th style="width: 21%;">Technology / Image</th>
+      <th style="width: 21%;">Host / URL</th>
+      <th style="width: 32%;">Primary Role & Operational Lifecycle</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>1. Frontend Web App</strong></td>
+      <td><code>3000</code></td>
+      <td>React 18 SPA (Vite / Dev / Nginx)</td>
+      <td><code>http://localhost:3000</code></td>
+      <td>Interactive user interface, file drag-and-drop zone, SSE stream consumer, bidirectional WebSocket chat client, and PDF.js canvas bounding box highlighter.</td>
+    </tr>
+    <tr>
+      <td><strong>2. Backend API Gateway</strong></td>
+      <td><code>5000</code></td>
+      <td>FastAPI / Uvicorn (Python 3.11+)</td>
+      <td><code>http://localhost:5000</code></td>
+      <td>Core API gateway. Handles multi-tenant JWT auth, document ingress staging, query routing, SSE token streaming, safe tool execution, and database sessions.</td>
+    </tr>
+    <tr>
+      <td><strong>3. Background Ingestion Worker</strong></td>
+      <td><code>Internal</code></td>
+      <td>Python Worker (<code>backend.workers.ingest_worker</code>)</td>
+      <td><code>Container / Subprocess</code></td>
+      <td>Decoupled asynchronous worker. Consumes jobs from Redis / task queue, runs Docling extraction, structure chunking, embeddings generation, and vector indexing without blocking the API.</td>
+    </tr>
+    <tr>
+      <td><strong>4. Docling Layout Engine</strong></td>
+      <td><code>5001</code></td>
+      <td><code>quay.io/docling-project/docling-serve</code></td>
+      <td><code>http://localhost:5001</code></td>
+      <td>IBM Docling layout vision container. Extracts headings, tables, reading order, and exact PDF bounding box coordinates (<code>x0, y0, x1, y1</code>). Has PyMuPDF fallback.</td>
+    </tr>
+    <tr>
+      <td><strong>5. Local LLM Service</strong></td>
+      <td><code>11434</code></td>
+      <td>Ollama Runtime</td>
+      <td><code>http://localhost:11434</code></td>
+      <td>Locally hosted LLM runtime. Serves <code>qwen2.5:3b</code> / <code>qwen2.5:7b</code> for conversational answering, query expansion, and optional Nomic dense embeddings.</td>
+    </tr>
+    <tr>
+      <td><strong>6. Vector Database</strong></td>
+      <td><code>6333</code> / <code>6334</code></td>
+      <td>Qdrant Vector DB Engine</td>
+      <td><code>http://localhost:6333</code></td>
+      <td>Stores dense vector chunks with Cosine distance indexing. Performs sub-millisecond Approximate Nearest Neighbor (ANN) vector search with HNSW graphs.</td>
+    </tr>
+    <tr>
+      <td><strong>7. Relational Database</strong></td>
+      <td><code>5432</code></td>
+      <td>PostgreSQL 16 Alpine / SQLite fallback</td>
+      <td><code>postgres:5432</code> / <code>rag_app.db</code></td>
+      <td>Persists multi-tenant users, sessions, documents, ingestion jobs, chat conversations, and full message histories with SQLAlchemy async session pooling.</td>
+    </tr>
+    <tr>
+      <td><strong>8. Redis Broker & Cache</strong></td>
+      <td><code>6379</code></td>
+      <td>Redis 7 Alpine</td>
+      <td><code>redis://localhost:6379/0</code></td>
+      <td>In-memory broker for the ingestion job queue (<code>docuchat_ingest_queue</code>) and pub/sub message broadcaster for real-time WebSocket progress updates.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-purple avoid-break">
+  <strong>Dual Database & Hybrid Storage Strategy:</strong> DocuChat AI connects by default to PostgreSQL 16 via <code>asyncpg</code>. If PostgreSQL is offline or running locally without Docker, it seamlessly falls back to local SQLite (<code>backend/data/rag_app.db</code>) via <code>aiosqlite</code> with zero configuration change. Qdrant similarly supports embedded local disk storage in <code>backend/data/qdrant_storage</code>.
+</div>
+
+<h3>1.2 The 4 Machine Learning Models in the Pipeline</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 19%;">Model Name</th>
+      <th style="width: 14%;">Architecture</th>
+      <th style="width: 13%;">Parameters / Dim</th>
+      <th style="width: 18%;">Serving Engine</th>
+      <th style="width: 36%;">Execution Stage & Specific Responsibility</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Qwen 2.5</strong> (<code>qwen2.5:3b</code> / <code>7b</code>)</td>
+      <td>Decoder-Only Transformer</td>
+      <td>3.09B / 7.61B params</td>
+      <td>Ollama (Port 11434)</td>
+      <td><strong>Reasoning, Rewriting & Generation:</strong> Resolves conversational pronouns, generates search query expansions, evaluates agentic tools, and streams grounded answers with citations.</td>
+    </tr>
+    <tr>
+      <td><strong>Nomic Embed / BGE-Small</strong></td>
+      <td>Encoder Transformer</td>
+      <td>768d / 384d normalized</td>
+      <td>Ollama / FastEmbed ONNX</td>
+      <td><strong>Dense Semantic Vectorization:</strong> Converts chunks and queries into dense vectors. Default is <code>nomic-embed-text:v1.5</code> (768d) or <code>BAAI/bge-small-en-v1.5</code> (384d).</td>
+    </tr>
+    <tr>
+      <td><strong>BAAI/bge-reranker-base</strong></td>
+      <td>Cross-Encoder Transformer</td>
+      <td>278M params</td>
+      <td>SentenceTransformers (CPU/GPU)</td>
+      <td><strong>Precision Relevance Reranking:</strong> Scores candidate chunk pairs <code>[Query, Passage]</code> with deep cross-attention, normalized with max-scaling to eliminate irrelevant candidates.</td>
+    </tr>
+    <tr>
+      <td><strong>Docling Vision / TableFormer</strong></td>
+      <td>Multi-Modal Vision Transformer</td>
+      <td>Proprietary Docling OCR</td>
+      <td>Docling-Serve (Port 5001)</td>
+      <td><strong>Structural Layout Parsing:</strong> Segments document structures, recognizes complex multi-column layouts, reconstructs markdown tables, and maps exact bounding box coordinates.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= SECTION 2 ================= -->
+<div class="page-break"></div>
+<h2>2. Visual End-to-End Pipeline Diagrams</h2>
+
+<h3>2.1 The Document Ingestion, Worker Queue & Multi-Modal Indexing Pipeline</h3>
+<p>The sequence triggered when a user drops a document (PDF, DOCX, XLSX, TXT, Image) into the DocuChat UI:</p>
+
+<div class="flowchart-diagram">
+[Browser UI: Port 3000] --(POST /api/documents: Multipart)--> [FastAPI: Port 5000]
+                                                                     |
+                                                (Validates Auth & Stages Raw File)
+                                                                     v
+                                                 [backend/data/uploads/{id}_{file}]
+                                                                     |
+                                      +------------------------------+------------------------------+
+                                      |                                                             |
+                        (Enqueues Ingest Job)                                      (Subscribes Live Progress)
+                                      v                                                             v
+                        [workers/job_queue.py]                                    [WS: /ws/documents/{id}/progress]
+                                      |                                                             ^
+                        (Redis: docuchat_ingest_queue)                                              |
+                                      v                                                             |
+                       [backend/workers/ingest_worker.py] --(Broadcasts: 15% -> 40% -> 65% -> 100%)-+
+                                      |
+                                      +-- 15% --> [parsers/converter.py] (Converts to Visual PDF via LibreOffice / Fitz)
+                                      |
+                                      +-- 40% --> [parsers/docling_parser.py] --(POST :5001)--> [Docling-Serve Vision]
+                                      |                                                               |
+                                      |                                                (Fallback: PyMuPDF Fitz)
+                                      |
+                                      +-- 65% --> [chunking/structure_chunker.py] (Target: 400 Tokens + Phrase BBoxes)
+                                      |
+                                      +-- 80% --> [embeddings/embedder.py] (Dense Vectors: Nomic 768d / BGE 384d)
+                                      |
+                 +--------------------+--------------------+
+                 |                                         |
+                 v (Port 6333)                             v (Disk: backend/data/bm25/{id}.json)
+        [Qdrant Vector DB]                         [BM25Plus Lexical Index]
+    (Collection: doc_chunks)                    (Inverted Sparse Term Table)
+                 |                                         |
+                 +--------------------+--------------------+
+                                      |
+                                      v (Progress 100%)
+                        [PostgreSQL / SQLite Database]
+                  (DocumentModel: status="ready", chunks=N)
+                                      |
+                       [Browser UI Shows Active Document]
+</div>
+
+<h3>2.2 The Multi-Tenant Query, Agentic Routing, Hybrid Retrieval & Grounded Generation Pipeline</h3>
+<p>The sequence executed when a user submits a question across active documents or in ChatGPT mode:</p>
+
+<div class="flowchart-diagram">
+[Browser UI: Port 3000] --(POST /api/chat [SSE] OR WS: /ws/chat)--> [FastAPI: Port 5000]
+                                                                            |
+                                                      (Validates JWT Bearer & Tenant Scoping)
+                                                                            v
+                                                       [backend/api/chat.py / websockets.py]
+                                                                            |
+                                                      (Checks Agentic Tools: Calculator / Excel)
+                                                                            v
+                                                             [backend/llm/router.py]
+                                                                            |
+                                            +-------------------------------+-------------------------------+
+                                            |                                                               |
+                              (Route == "document")                                           (Route == "general")
+                                            v                                                               v
+                             [backend/llm/rewriter.py]                                     [backend/retrieval/web_search.py]
+                         (Ollama Port 11434: 3 Expansions)                              (Yahoo Finance / DDG / Wikipedia)
+                                            |                                                               |
+                       +--------------------+--------------------+                                          |
+                       |                                         |                                          |
+                       v (Port 6333)                             v (Disk / RAM)                             |
+             [Qdrant Vector Store]                       [BM25Plus Index]                                   |
+           (Dense Semantic: Top 30)                   (Sparse Lexical: Top 30)                              |
+                       |                                         |                                          |
+                       +--------------------+--------------------+                                          |
+                                            |                                                               |
+                                            v                                                               |
+                             [backend/retrieval/fusion.py]                                                  |
+                          (Reciprocal Rank Fusion: k = 60)                                                  |
+                                            |                                                               |
+                                            v                                                               |
+                             [backend/retrieval/dedup.py]                                                   |
+                          (Jaccard & N-Gram Text Filter)                                                    |
+                                            |                                                               |
+                                            v                                                               |
+                            [backend/retrieval/reranker.py]                                                 |
+                       (BAAI/bge-reranker-base: Max-Scaled Top 40)                                          |
+                                            |                                                               |
+                           (Score >= 0.25 Threshold -> Top 3)                                               |
+                                            |                                                               |
+                                            +-------------------------------+-------------------------------+
+                                                                            |
+                                                                            v
+                                                        [backend/llm/generator.py]
+                                                  [backend/llm/langchain_adapter.py]
+                                                                            |
+                                                        (Constructs Grounded Numbered Sources)
+                                                                            v
+                                                        [Ollama: qwen2.5:3b / 7b Engine]
+                                                                            |
+                                                         (Streaming Tokens via SSE / WS)
+                                                                            v
+                                                    [refine_citations_for_answer()]
+                                                 (Global Scoring Isolates Exact Single BBox)
+                                                                            v
+[Browser UI Receives: Token Stream + Citations Payload] &lt;-------------------+
+           |
+(Renders Live Markdown Response & Paints Fluorescent Pulsing Highlight Box on PDF.js Canvas)
+</div>
+
+<h3>2.3 The Safe Agentic Tool Execution Pipeline</h3>
+<div class="flowchart-diagram">
+[Browser UI] --(POST /api/tools/execute: {tool, arguments})--> [backend/api/tools.py]
+                                                                      |
+                                                          (Validates Against Pydantic Schema)
+                                                                      v
+                                                         [backend/tools/registry.py]
+                                                                      |
+                     +----------------------------+-------------------+----------------------------+
+                     |                            |                                                |
+                     v                            v                                                v
+            [calculator.py]              [web_search.py]                                 [excel_generator.py]
+        (Safe AST Tree Eval)         (DuckDuckGo / Yahoo / Wiki)                     (OpenPyXL Formatted Tables)
+        (No eval() execution)        (Zero API Key Required)                         (Saves to data/output/*.xlsx)
+                     |                            |                                                |
+                     +----------------------------+-------------------+----------------------------+
+                                                                      |
+                                                                      v
+                                                   [Returns Structured JSON Result]
+                                                                      |
+                                                    (If File Generated: Download via)
+                                            [GET /api/tools/download/{file}: Path-Traversed Safe]
+</div>
+
+<!-- ================= SECTION 3 ================= -->
+<div class="page-break"></div>
+<h2>3. Step-by-Step Order: When You Upload a Document</h2>
+<p>When a document is uploaded, DocuChat AI executes an <strong>11-step asynchronous ingestion workflow</strong> designed for non-blocking UI responsiveness, structural layout preservation, and precise provenance tracking.</p>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">1</div>
+      <span>Frontend Selection & Multipart HTTP Dispatch</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">frontend/src/App.jsx</span>
+      <span class="tag tag-server">Port 3000 -> 5000</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> The user drops or selects a document file in the React UI dropzone. <code>handleFileUpload(file)</code> validates the file size, builds a <code>FormData</code> multipart body containing <code>file</code> and optional authentication token, and sends an asynchronous <code>POST http://localhost:5000/api/documents</code>.</p>
+  <p><strong>Calling Server:</strong> React Frontend on Port 3000 &bull; <strong>Receiving Server:</strong> FastAPI on Port 5000 &bull; <strong>Active Code:</strong> <code>App.jsx: lines 450&ndash;510</code>, <code>services/api.js</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">2</div>
+      <span>FastAPI Upload Validation, Multi-Tenant Auth & Disk Staging</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/api/documents.py</span>
+      <span class="tag tag-server">FastAPI</span>
+      <span class="tag tag-file">backend/api/auth.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> The endpoint <code>upload_document()</code> receives the upload. It parses the optional <code>Authorization: Bearer &lt;token&gt;</code> to extract <code>user_id</code>. It verifies the extension against <code>ALLOWED_EXTENSIONS</code> (<code>.pdf, .docx, .pptx, .xlsx, .txt, .html, .png, .jpg, .jpeg</code>), generates a UUID (<code>doc_id = str(uuid.uuid4())</code>), and streams the file to disk at <code>backend/data/uploads/{doc_id}_{filename}</code>.</p>
+  <p><strong>Disk Location:</strong> <code>backend/data/uploads/</code> &bull; <strong>Active Code:</strong> <code>documents.py: lines 85&ndash;120</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">3</div>
+      <span>Relational DB Row & Ingest Job Record Creation</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-db">PostgreSQL / SQLite</span>
+      <span class="tag tag-file">backend/db/models.py</span>
+      <span class="tag tag-queue">IngestJobModel</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Two database records are committed in the relational database: 1. <code>DocumentModel(id=doc_id, user_id=user_id, filename=filename, status="queued")</code>, and 2. <code>IngestJobModel(id=job_id, document_id=doc_id, status="queued", progress=5)</code>. This ensures persistent job tracking across container restarts.</p>
+  <p><strong>Database Records:</strong> <code>DocumentModel</code> & <code>IngestJobModel</code> &bull; <strong>Active Code:</strong> <code>documents.py</code>, <code>workers/job_queue.py: lines 30&ndash;45</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">4</div>
+      <span>Asynchronous Job Enqueuing & WebSocket Subscription</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-queue">Redis Queue / Task Pool</span>
+      <span class="tag tag-file">backend/workers/job_queue.py</span>
+      <span class="tag tag-ws">WebSocket /ws/documents</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>enqueue_document_ingestion()</code> pushes the job payload onto Redis list <code>docuchat_ingest_queue</code>. If Redis is unconfigured or offline, it launches an asynchronous task pool worker. FastAPI immediately returns HTTP 200 with document metadata. The React client immediately opens a live WebSocket connection to <code>/ws/documents/{doc_id}/progress</code> to stream real-time percentage updates.</p>
+  <p><strong>Protocol:</strong> Redis RPUSH & WebSocket &bull; <strong>Active Code:</strong> <code>job_queue.py: lines 45&ndash;65</code>, <code>api/websockets.py: lines 180&ndash;260</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">5</div>
+      <span>Format Normalization to Visual PDF</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/parsers/converter.py</span>
+      <span class="tag tag-server">Worker Process</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> The background worker executes <code>convert_to_pdf(input_path, settings.CONVERTED_DIR)</code>. If the file is already a PDF, it validates page headers via PyMuPDF (<code>fitz.open()</code>). If it is DOCX, PPTX, XLSX, or TXT, it converts it to PDF using headless LibreOffice. If it is an image (PNG, JPG), PyMuPDF builds a PDF page wrapper so the frontend PDF.js canvas can display it identically. Worker broadcasts progress: <strong>15%</strong>.</p>
+  <p><strong>Output:</strong> A normalized PDF file path at <code>backend/data/converted/</code> &bull; <strong>Active Code:</strong> <code>converter.py: lines 9&ndash;83</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">6</div>
+      <span>Docling Microservice Extraction & Structure Parsing</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-server">Port 5000 -> 5001</span>
+      <span class="tag tag-model">Docling / TableFormer</span>
+      <span class="tag tag-file">backend/parsers/docling_parser.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Worker calls <code>docling_parser.parse_file()</code>, making an HTTP <code>POST http://localhost:5001/v1/convert/file</code> to the Docling-serve container. Docling executes its deep vision layout model to detect headings, paragraph flows, and tabular cells with exact coordinates: <code>{"l": left, "t": top, "r": right, "b": bottom, "page_no": page}</code>.<br>
+  <em>Built-in Fault Tolerance:</em> If Docling is offline, DoclingParser catches the error and executes its native <code>pymupdf</code> fallback, extracting blocks and word-level rects with 100% uptime. Worker broadcasts progress: <strong>40%</strong>.</p>
+  <p><strong>Output:</strong> <code>List[ParsedElement]</code> with text, heading paths, page numbers, and bounding boxes &bull; <strong>Active Code:</strong> <code>docling_parser.py: lines 45&ndash;130</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">7</div>
+      <span>Structure-Aware Token Chunking & Provenance Retention</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/chunking/structure_chunker.py</span>
+      <span class="tag tag-server">In-Process</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>structure_chunker.chunk_elements()</code> iterates over <code>ParsedElement</code> objects. It groups elements respecting markdown section boundaries (<code># Title &gt; ## Section</code>) and table structures until reaching the configured token target (<code>CHUNK_TARGET_TOKENS = 400</code>, max 450, overlap 50). Crucially, it aggregates element bounding boxes and attaches the exact phrase text to each bounding box. Worker broadcasts progress: <strong>65%</strong>.</p>
+  <p><strong>Output:</strong> <code>List[Chunk]</code> with chunk ID, unified markdown text, page, bboxes, and section metadata &bull; <strong>Active Code:</strong> <code>structure_chunker.py: lines 35&ndash;140</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">8</div>
+      <span>Dense Vector Embedding Generation (AI Model)</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-model">Nomic 768d / BGE 384d</span>
+      <span class="tag tag-file">backend/embeddings/embedder.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>embedder.embed_texts(chunk_texts)</code> is called. If configured for Nomic (default), it invokes Ollama&rsquo;s <code>/api/embed</code> endpoint to produce 768-dimensional normalized vectors. If configured for BGE, it loads <code>BAAI/bge-small-en-v1.5</code> via FastEmbed ONNX runtime locally for sub-second CPU batch embedding (384 dimensions). Worker broadcasts progress: <strong>80%</strong>.</p>
+  <p><strong>Output:</strong> Normalized floating-point vector arrays (dim = 768 or 384) &bull; <strong>Active Code:</strong> <code>embedder.py: lines 35&ndash;80</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">9</div>
+      <span>Vector Storage Upsert & Collection Indexing</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-server">Port 6333 (Qdrant)</span>
+      <span class="tag tag-file">backend/retrieval/vector_store.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>vector_store.upsert_chunks()</code> sends the batch of chunk vectors to Qdrant collection <code>doc_chunks</code>. Every point stores: vector, ID, and payload (<code>doc_id</code>, <code>chunk_id</code>, <code>page</code>, <code>text</code>, <code>bboxes</code>, <code>heading_path</code>). Qdrant indexes points into an in-memory HNSW graph for fast Cosine similarity retrieval. Worker broadcasts progress: <strong>90%</strong>.</p>
+  <p><strong>Target DB:</strong> Qdrant Vector DB on Port 6333 &bull; <strong>Active Code:</strong> <code>vector_store.py: lines 65&ndash;110</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">10</div>
+      <span>BM25Plus Lexical Inverted Indexing</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/retrieval/bm25.py</span>
+      <span class="tag tag-db">Disk: data/bm25</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>bm25_index.build_index_for_document(doc_id, chunks)</code> tokenizes chunks into stemmed lowercase n-grams, computes inverse document frequencies (IDF), and serializes the index to disk at <code>backend/data/bm25/{doc_id}.json</code>. Using the BM25Plus algorithm prevents score clipping on long passages. Worker broadcasts progress: <strong>95%</strong>.</p>
+  <p><strong>Disk File:</strong> <code>backend/data/bm25/{doc_id}.json</code> &bull; <strong>Active Code:</strong> <code>bm25.py: lines 45&ndash;120</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">11</div>
+      <span>Relational DB Finalization & Real-Time WebSocket Completion</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-db">PostgreSQL / SQLite</span>
+      <span class="tag tag-ws">WebSocket Event</span>
+      <span class="tag tag-file">backend/workers/ingest_worker.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Worker updates <code>DocumentModel(id=doc_id, status="ready", chunk_count=len(chunks), page_count=pages)</code> and sets <code>IngestJobModel(status="completed", progress=100)</code>. It publishes the final completion event over Redis pub/sub and local WebSocket channels. The React client displays the document as ready, switches the badge to green, and mounts the document into the PDF canvas viewer.</p>
+  <p><strong>Active Code:</strong> <code>ingest_worker.py: lines 140&ndash;190</code>, <code>App.jsx: lines 510&ndash;560</code>.</p>
+</div>
+
+<!-- ================= SECTION 4 ================= -->
+<div class="page-break"></div>
+<h2>4. Step-by-Step Order: When You Ask a Question / Chat</h2>
+<p>When a user types a prompt and presses Enter, DocuChat AI executes an <strong>11-step inference, hybrid retrieval, and grounded generation pipeline</strong> with strict provenance guarantees.</p>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">1</div>
+      <span>User Message Input & SSE / WebSocket Dispatch</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">frontend/src/components/Chat/ChatInput.jsx</span>
+      <span class="tag tag-server">Port 3000 -> 5000</span>
+      <span class="tag tag-ws">SSE / WS</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> The user submits a prompt. The frontend checks connection preferences: it either sends an HTTP POST <code>/api/chat</code> expecting a Server-Sent Events (SSE) stream or dispatches a JSON packet over the existing <code>/ws/chat</code> WebSocket channel containing: <code>{message, conversation_id, active_doc_ids}</code>.</p>
+  <p><strong>Active Code:</strong> <code>ChatInput.jsx</code>, <code>services/api.js</code>, <code>services/websocket.js</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">2</div>
+      <span>Multi-Tenant Session Validation & Context Window Assembly</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-db">PostgreSQL / SQLite</span>
+      <span class="tag tag-file">backend/api/chat.py</span>
+      <span class="tag tag-file">backend/api/websockets.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Backend validates JWT bearer token to verify user ownership. It looks up or creates the <code>ConversationModel</code>, saves the user message as a new <code>MessageModel(role="user", content=message)</code>, and queries the database for the last 6 conversation turns to maintain conversational continuity.</p>
+  <p><strong>Active Code:</strong> <code>chat.py: lines 35&ndash;75</code>, <code>websockets.py: lines 60&ndash;110</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">3</div>
+      <span>Agentic Tool Intent Evaluation</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-tool">Agentic Tools</span>
+      <span class="tag tag-file">backend/tools/registry.py</span>
+      <span class="tag tag-file">backend/llm/router.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Before performing full document retrieval, the system evaluates if the prompt requires a vetted tool:
+  1. Arithmetic or calculations &rarr; <code>calculator</code> (safe AST parser, zero eval),
+  2. Tabular generation requests (e.g. &ldquo;export as Excel sheet&rdquo;) &rarr; <code>export_excel</code> (OpenPyXL generator),
+  3. Real-time market, movie, or weather queries &rarr; <code>web_search</code>. If a standalone tool matches, it executes safely within sandbox limits.</p>
+  <p><strong>Active Code:</strong> <code>registry.py: lines 50&ndash;90</code>, <code>tools.py: lines 20&ndash;40</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">4</div>
+      <span>Intent Routing: Document Mode vs ChatGPT Real-World Mode</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/llm/router.py</span>
+      <span class="tag tag-server">In-Process</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>query_router.route_query()</code> inspects the active document scope and question text:
+  1. If no documents exist or <code>active_doc_ids</code> is empty &rarr; routes to <code>"general"</code> mode (ChatGPT real-world mode),
+  2. If documents are active and query is a conversational greeting (e.g., &ldquo;hello&rdquo;, &ldquo;who are you&rdquo;) &rarr; routes to <code>"general"</code>,
+  3. If documents are active and query asks for facts &rarr; routes to <code>"document"</code> mode to enforce strict document grounding.</p>
+  <p><strong>Output:</strong> <code>(route_type, badge_label)</code> &bull; <strong>Active Code:</strong> <code>router.py: lines 15&ndash;44</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">5</div>
+      <span>Multi-Query Rewriting & Pronoun Disambiguation (Server Call & AI Model)</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-model">Qwen 2.5 (11434)</span>
+      <span class="tag tag-file">backend/llm/rewriter.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> If in <code>"document"</code> mode, <code>query_rewriter.transform_query()</code> analyzes the question and chat history. It prompts Ollama to resolve ambiguous references (e.g., converting &ldquo;What were its results?&rdquo; to &ldquo;What were the BLEU score results of Transformer base model?&rdquo;). It also triggers specialized rule expansions for tables, summaries, and financial reports, returning 3 search variants: <code>[standalone_query, alt_1, alt_2]</code>.</p>
+  <p><strong>Active Code:</strong> <code>rewriter.py: lines 20&ndash;95</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">6</div>
+      <span>Parallel Hybrid Retrieval: Dense Vectors (Qdrant) + Sparse Lexical (BM25Plus)</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-server">Qdrant Port 6333</span>
+      <span class="tag tag-file">backend/retrieval/pipeline.py</span>
+      <span class="tag tag-db">Disk: data/bm25</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>retrieval_pipeline.retrieve()</code> executes parallel async retrieval for each generated query variant:
+  1. <strong>Dense Vector Search:</strong> Embeds query via <code>embedder.embed_query()</code> and searches Qdrant (Top 30 by Cosine distance),
+  2. <strong>Sparse Lexical Search:</strong> Evaluates query against the BM25Plus index on disk (Top 30 by keyword frequency). This guarantees exact term matching (e.g. acronyms, IDs, dates) and semantic matching.</p>
+  <p><strong>Output:</strong> Parallel ranking lists from Qdrant and BM25Plus &bull; <strong>Active Code:</strong> <code>pipeline.py: lines 40&ndash;65</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">7</div>
+      <span>Reciprocal Rank Fusion (RRF) & Semantic Deduplication</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/retrieval/fusion.py</span>
+      <span class="tag tag-file">backend/retrieval/dedup.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Candidate lists are combined using Reciprocal Rank Fusion: $RRF(d) = \sum \frac{1}{60 + rank(d)}$. This unifies dissimilar vector and BM25 scoring scales into a single fair ranking. Then, <code>deduplicate_chunks()</code> calculates Jaccard word similarity and character 3-gram overlap, removing redundant or overlapping text chunks with similarity $> 0.88$.</p>
+  <p><strong>Active Code:</strong> <code>fusion.py: lines 12&ndash;55</code>, <code>dedup.py: lines 10&ndash;45</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">8</div>
+      <span>Cross-Encoder Deep Reranking & Max-Scaling Normalization (AI Model)</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-model">BAAI/bge-reranker-base</span>
+      <span class="tag tag-file">backend/retrieval/reranker.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> The top 40 candidate chunks are passed to <code>reranker.rerank()</code>. <code>BAAI/bge-reranker-base</code> evaluates the combined pair <code>[Query, Chunk Text]</code> using full cross-attention. It applies <strong>Max-Scaling Normalization</strong> (<code>raw / max_s</code>) so that secondary relevant passages are not artificially suppressed by sigmoid flattening. Passages below <code>SCORE_THRESHOLD = 0.25</code> are dropped. The top 3&ndash;5 highest-ranking passages are selected.</p>
+  <p><strong>Active Code:</strong> <code>reranker.py: lines 25&ndash;75</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">9</div>
+      <span>Grounded Prompt Assembly, LangChain Orchestration & Token Streaming (AI Model)</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-model">Qwen 2.5 (11434)</span>
+      <span class="tag tag-file">backend/llm/generator.py</span>
+      <span class="tag tag-file">backend/llm/langchain_adapter.py</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> <code>grounded_generator</code> formats the retrieved passages into numbered context blocks <code>[1] (Page P): text</code> with strict anti-hallucination system directives. It invokes Ollama (<code>qwen2.5:3b</code> / <code>7b</code>) via native streaming or the LangChain ChatOllama adapter. Tokens stream character-by-character to the client UI as SSE events (<code>event: token</code>) or WebSocket messages.</p>
+  <p><strong>Active Code:</strong> <code>generator.py: lines 20&ndash;110</code>, <code>langchain_adapter.py: lines 70&ndash;160</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">10</div>
+      <span>Real-Time Live Web Knowledge Fallback</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/retrieval/web_search.py</span>
+      <span class="tag tag-server">Yahoo / DDG / Wiki</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> If the model concludes that the document lacks the requested answer (e.g. &ldquo;This is not mentioned in the document&rdquo;) or if routed in general ChatGPT mode, the system seamlessly queries <code>live_web_search</code>. It hits Yahoo Finance API for real-time tickers, DuckDuckGo Lite for current news/movies, and Wikipedia REST API for sports/facts with zero API key dependencies.</p>
+  <p><strong>Active Code:</strong> <code>web_search.py: lines 25&ndash;190</code>.</p>
+</div>
+
+<div class="step-card">
+  <div class="step-header">
+    <div class="step-title-badge">
+      <div class="step-num">11</div>
+      <span>Global Best-Box Refinement & Synchronized Canvas Highlighting</span>
+    </div>
+    <div class="step-tags">
+      <span class="tag tag-file">backend/llm/generator.py</span>
+      <span class="tag tag-file">frontend/src/components/PdfViewer/PdfViewerDrawer.jsx</span>
+    </div>
+  </div>
+  <p><strong>What Happens:</strong> Once generation completes, <code>refine_citations_for_answer()</code> performs global n-gram intersection scoring between generated answer tokens and chunk bounding box text. It isolates the <strong>single winning bounding box</strong> containing the answer, preventing the legacy &ldquo;blue screen&rdquo; multi-box clutter bug. The citation event transmits <code>{page, bboxes: [winning_box]}</code> to the React viewer, triggering a high-contrast pulsing glow on the PDF.js HTML5 canvas.</p>
+  <p><strong>Active Code:</strong> <code>generator.py: lines 135&ndash;220</code>, <code>PdfViewerDrawer.jsx</code>.</p>
+</div>
+
+<!-- ================= SECTION 5 ================= -->
+<div class="page-break"></div>
+<h2>5. Complete File-by-File Codebase Catalog</h2>
+<p>An exhaustive architectural breakdown of all 35 source code files in the DocuChat AI repository, grouped by architectural subsystem with their exact roles, callers, and callees.</p>
+
+<h3>5.1 API Gateway & Application Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/main.py</code></span>
+      <span class="tag tag-server">FastAPI Entrypoint</span>
+    </div>
+    <div class="file-item-desc">Initializes the FastAPI application, configures CORS middleware, registers request ID correlation headers, initializes database schemas via <code>init_db()</code>, seeds default demo users, ensures Qdrant collection existence, and mounts all REST routers and WebSocket endpoints.</div>
+    <div class="file-item-deps">&bull; Called By: Uvicorn / Docker CMD &bull; Calls: config.py, db/session.py, retrieval/vector_store.py, api/ routers</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/config.py</code></span>
+      <span class="tag tag-file">Configuration Engine</span>
+    </div>
+    <div class="file-item-desc">Centralized Pydantic settings singleton (<code>Settings</code>). Defines network ports, model identifiers (<code>LLM_MODEL="qwen2.5:3b"</code>, <code>EMBEDDING_MODEL="nomic-embed-text:v1.5"</code>), retrieval tuning thresholds (<code>RETRIEVAL_TOP_K=30</code>, <code>RRF_K=60</code>, <code>FINAL_TOP_K=3</code>), directory paths, and auto-detects embedding dimensions (768 vs 384).</div>
+    <div class="file-item-deps">&bull; Called By: Every module across backend &bull; Calls: pydantic_settings</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/documents.py</code></span>
+      <span class="tag tag-server">Document Ingestion API</span>
+    </div>
+    <div class="file-item-desc">REST controller for document lifecycle. Validates uploads, checks file types, generates UUIDs, stages bytes to disk, persists database records, and dispatches asynchronous ingestion to the job queue. Also provides document deletion and raw file serving.</div>
+    <div class="file-item-deps">&bull; Called By: React UI (App.jsx) &bull; Calls: config.py, db/models.py, workers/job_queue.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/chat.py</code></span>
+      <span class="tag tag-server">Streaming Chat API</span>
+    </div>
+    <div class="file-item-desc">Server-Sent Events (SSE) streaming chat endpoint (<code>POST /api/chat</code>). Handles multi-tenant JWT auth, session lookups, query routing, conversational history persistence, and streams real-time answer tokens and refined citation bounding boxes.</div>
+    <div class="file-item-deps">&bull; Called By: React UI (ChatInput.jsx) &bull; Calls: router.py, rewriter.py, pipeline.py, generator.py, db/session.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/conversations.py</code></span>
+      <span class="tag tag-server">Chat Sessions API</span>
+    </div>
+    <div class="file-item-desc">CRUD endpoints for conversation sessions (<code>/api/conversations</code>). Lists user conversations, retrieves full chronological message histories, updates conversation titles, and executes cascading session deletions.</div>
+    <div class="file-item-deps">&bull; Called By: React UI (Sidebar.jsx, HistoryModal.jsx) &bull; Calls: db/models.py, db/session.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/auth.py</code></span>
+      <span class="tag tag-file">Multi-Tenant Auth Engine</span>
+    </div>
+    <div class="file-item-desc">Enterprise user authentication and session management. Implements Argon2id password hashing with PBKDF2-HMAC-SHA256 fallback, signed JWT bearer tokens with 24-hour expiration, Role-Based Access Control (RBAC: <code>admin</code>/<code>user</code>), and default seeded demo accounts.</div>
+    <div class="file-item-deps">&bull; Called By: main.py, chat.py, documents.py &bull; Calls: argon2, jwt, db/models.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/websockets.py</code></span>
+      <span class="tag tag-ws">Production WebSockets</span>
+    </div>
+    <div class="file-item-desc">Bidirectional real-time WebSocket endpoints. Provides <code>/ws/chat</code> for low-latency token streaming with cancellation signals and <code>/ws/documents/{doc_id}/progress</code> for live step-by-step document ingestion progress broadcasts.</div>
+    <div class="file-item-deps">&bull; Called By: React UI (websocket.js) &bull; Calls: ingest_worker.py, generator.py, pipeline.py, auth.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/api/tools.py</code></span>
+      <span class="tag tag-tool">Agentic Tools API</span>
+    </div>
+    <div class="file-item-desc">Endpoints for tool discovery (<code>GET /api/tools</code>), safe sandboxed tool execution (<code>POST /api/tools/execute</code>), and path-traversal-defended file downloads (<code>GET /api/tools/download/{filename}</code>) for generated Excel workbooks.</div>
+    <div class="file-item-deps">&bull; Called By: React UI (ToolExecutionModal.jsx) &bull; Calls: tools/registry.py, config.py</div>
+  </div>
+</div>
+
+<h3>5.2 Background Workers & Asynchronous Job Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/workers/ingest_worker.py</code></span>
+      <span class="tag tag-queue">Asynchronous Ingest Worker</span>
+    </div>
+    <div class="file-item-desc">Dedicated background ingestion worker. Runs format conversion, Docling vision extraction, PyMuPDF fallback, structure chunking, dense embeddings, Qdrant upserts, and BM25 index creation. Broadcasts real-time percentage updates via Redis pub/sub and WebSocket channels.</div>
+    <div class="file-item-deps">&bull; Called By: job_queue.py / Docker CMD &bull; Calls: converter.py, docling_parser.py, structure_chunker.py, embedder.py, vector_store.py, bm25.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/workers/job_queue.py</code></span>
+      <span class="tag tag-queue">Job Dispatcher & State Tracker</span>
+    </div>
+    <div class="file-item-desc">Manages asynchronous job dispatching. Creates persistent <code>IngestJobModel</code> database records, tries Redis queue dispatch (<code>docuchat_ingest_queue</code>), and falls back gracefully to an in-memory async task pool when running in lightweight mode.</div>
+    <div class="file-item-deps">&bull; Called By: api/documents.py &bull; Calls: db/models.py, ingest_worker.py, redis.asyncio</div>
+  </div>
+</div>
+
+<h3>5.3 Parsing, Chunking & Ingestion Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/parsers/converter.py</code></span>
+      <span class="tag tag-file">Format Normalizer</span>
+    </div>
+    <div class="file-item-desc">Converts uploaded office documents (DOCX, PPTX, XLSX, TXT, HTML) and raster images (PNG, JPG) into standardized PDF representations using headless LibreOffice or PyMuPDF so the frontend canvas viewer can render them.</div>
+    <div class="file-item-deps">&bull; Called By: ingest_worker.py &bull; Calls: LibreOffice CLI, fitz (PyMuPDF)</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/parsers/docling_parser.py</code></span>
+      <span class="tag tag-model">Docling Vision Client</span>
+    </div>
+    <div class="file-item-desc">HTTP client for the Docling-serve microservice (Port 5001). Extracts document hierarchy, markdown tables, and bounding boxes. Implements an automatic local PyMuPDF fallback that extracts word-level rects and blocks if Docling is offline.</div>
+    <div class="file-item-deps">&bull; Called By: ingest_worker.py &bull; Calls: Docling REST API, fitz (PyMuPDF)</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/chunking/structure_chunker.py</code></span>
+      <span class="tag tag-file">Structure Chunker</span>
+    </div>
+    <div class="file-item-desc">Decomposes parsed elements into token-budgeted chunks (~400 target tokens, 50 overlap). Preserves markdown heading paths (<code># Title &gt; ## Section</code>), table layouts, and associates raw sentence text with exact coordinate bounding boxes.</div>
+    <div class="file-item-deps">&bull; Called By: ingest_worker.py &bull; Calls: config.py, tiktoken</div>
+  </div>
+</div>
+
+<h3>5.4 Embedding & Vector Storage Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/embeddings/embedder.py</code></span>
+      <span class="tag tag-model">Embedding Service</span>
+    </div>
+    <div class="file-item-desc">Unified embedding service supporting dual backends: Nomic Embed (768d via Ollama) and BGE-Small (384d via FastEmbed ONNX runtime / SentenceTransformers). Formats query search instructions and normalizes vectors.</div>
+    <div class="file-item-deps">&bull; Called By: ingest_worker.py, pipeline.py &bull; Calls: Ollama /api/embed, fastembed, sentence_transformers</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/vector_store.py</code></span>
+      <span class="tag tag-server">Qdrant Client</span>
+    </div>
+    <div class="file-item-desc">Manages Qdrant Vector DB connection (Port 6333) with embedded storage fallback. Creates collection <code>doc_chunks</code> with Cosine distance, handles batch upserts with chunk metadata, and executes document-filtered ANN vector searches.</div>
+    <div class="file-item-deps">&bull; Called By: main.py, ingest_worker.py, pipeline.py &bull; Calls: qdrant_client</div>
+  </div>
+</div>
+
+<h3>5.5 Retrieval, Fusion, Deduplication & Live Web Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/bm25.py</code></span>
+      <span class="tag tag-db">Lexical BM25Plus Index</span>
+    </div>
+    <div class="file-item-desc">Implements BM25Plus sparse lexical retrieval. Persists per-document inverted indexes to disk at <code>backend/data/bm25/{doc_id}.json</code>. Solves the standard BM25 negative score bug on long passages.</div>
+    <div class="file-item-deps">&bull; Called By: ingest_worker.py, pipeline.py &bull; Calls: rank_bm25, config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/fusion.py</code></span>
+      <span class="tag tag-file">Hybrid Rank Fusion</span>
+    </div>
+    <div class="file-item-desc">Merges disparate ranked lists from vector ANN search and BM25Plus using Reciprocal Rank Fusion ($k=60$) and score-weighted fusion. Normalizes candidate scores into a unified distribution.</div>
+    <div class="file-item-deps">&bull; Called By: pipeline.py &bull; Calls: None (Pure math)</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/dedup.py</code></span>
+      <span class="tag tag-file">Semantic Deduplicator</span>
+    </div>
+    <div class="file-item-desc">Filters redundant chunks by chunk ID, Jaccard word set similarity, and character n-gram overlap ($&gt; 0.88$). Eliminates duplicate headers and sliding-window chunk overlaps.</div>
+    <div class="file-item-deps">&bull; Called By: pipeline.py &bull; Calls: None (Pure Python)</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/reranker.py</code></span>
+      <span class="tag tag-model">Cross-Encoder Reranker</span>
+    </div>
+    <div class="file-item-desc">Executes deep cross-attention reranking with <code>BAAI/bge-reranker-base</code>. Uses <strong>Max-Scaling Normalization</strong> (<code>raw / max_s</code>) to prevent valid secondary candidate chunks from being dropped, filtering out candidates below 0.25 relevance.</div>
+    <div class="file-item-deps">&bull; Called By: pipeline.py &bull; Calls: sentence_transformers, CrossEncoder</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/pipeline.py</code></span>
+      <span class="tag tag-server">Master Retrieval Pipeline</span>
+    </div>
+    <div class="file-item-desc">Master orchestrator for the retrieval subsystem. Executes parallel multi-query vector and BM25 searches, passes hits through RRF fusion, applies deduplication, and invokes cross-encoder reranking to return the final Top 3 candidates.</div>
+    <div class="file-item-deps">&bull; Called By: api/chat.py, api/websockets.py &bull; Calls: vector_store.py, bm25.py, fusion.py, dedup.py, reranker.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/retrieval/web_search.py</code></span>
+      <span class="tag tag-server">Live Web Engine</span>
+    </div>
+    <div class="file-item-desc">Zero-API-key live web knowledge engine. Real-time market data via Yahoo Finance API, current events and movie lookups via DuckDuckGo Lite, and encyclopedic sports/history facts via Wikipedia REST API.</div>
+    <div class="file-item-deps">&bull; Called By: llm/generator.py, tools/registry.py &bull; Calls: httpx, requests</div>
+  </div>
+</div>
+
+<h3>5.6 LLM Reasoning, Generation, LangChain & Agentic Tools Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/llm/client.py</code></span>
+      <span class="tag tag-server">Ollama Client</span>
+    </div>
+    <div class="file-item-desc">Asynchronous HTTP client for Ollama (Port 11434). Handles raw model streaming, health checks, temperature adjustments, context window sizing (8192 tokens), and connection timeouts.</div>
+    <div class="file-item-deps">&bull; Called By: rewriter.py, generator.py &bull; Calls: httpx, config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/llm/router.py</code></span>
+      <span class="tag tag-file">Query Router</span>
+    </div>
+    <div class="file-item-desc">Routes queries between <code>"document"</code> mode (grounded document facts, citations, PDF highlight) and <code>"general"</code> mode (ChatGPT real-world knowledge). Evaluates document presence and detects pleasantries/greetings.</div>
+    <div class="file-item-deps">&bull; Called By: api/chat.py, api/websockets.py &bull; Calls: config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/llm/rewriter.py</code></span>
+      <span class="tag tag-model">Query Rewriter</span>
+    </div>
+    <div class="file-item-desc">Uses chat history to resolve conversational pronouns (it, they, former, latter) and generates 3 query variants. Contains specialized fast expansions for tables, summaries, and financial reports.</div>
+    <div class="file-item-deps">&bull; Called By: api/chat.py, api/websockets.py &bull; Calls: llm/client.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/llm/generator.py</code></span>
+      <span class="tag tag-model">Grounded Generator</span>
+    </div>
+    <div class="file-item-desc">Assembles grounded prompts with numbered citations <code>[1]</code>. Enforces strict anti-hallucination rules. Streams tokens via SSE / WS. Runs <code>refine_citations_for_answer()</code> to isolate the single winning bounding box for PDF canvas highlighting.</div>
+    <div class="file-item-deps">&bull; Called By: api/chat.py, api/websockets.py &bull; Calls: client.py, langchain_adapter.py, web_search.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/llm/langchain_adapter.py</code></span>
+      <span class="tag tag-file">LangChain Orchestrator</span>
+    </div>
+    <div class="file-item-desc">LangChain integration layer. Provides ChatOllama model orchestration, Document abstraction, ChatPromptTemplate formatting, and advanced PDF text cleaning (<code>clean_pdf_text()</code>) to fix hyphenated word breaks.</div>
+    <div class="file-item-deps">&bull; Called By: generator.py &bull; Calls: langchain_core, langchain_ollama, config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/tools/registry.py</code></span>
+      <span class="tag tag-tool">Safe Tool Registry</span>
+    </div>
+    <div class="file-item-desc">Central catalog of vetted agentic tools with Pydantic JSON schemas: <code>calculator</code>, <code>web_search</code>, and <code>export_excel</code>. Validates tool arguments and sandboxes execution with strict timeouts.</div>
+    <div class="file-item-deps">&bull; Called By: api/tools.py &bull; Calls: calculator.py, excel_generator.py, web_search.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/tools/calculator.py</code></span>
+      <span class="tag tag-tool">AST Math Evaluator</span>
+    </div>
+    <div class="file-item-desc">Safe arithmetic engine using Python&rsquo;s <code>ast</code> parser. Evaluates additions, multiplications, powers, and trigonometry without ever executing <code>eval()</code>, preventing arbitrary code injection.</div>
+    <div class="file-item-deps">&bull; Called By: tools/registry.py &bull; Calls: ast, math</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/tools/excel_generator.py</code></span>
+      <span class="tag tag-tool">Excel Generator</span>
+    </div>
+    <div class="file-item-desc">Automated styled spreadsheet generator via <code>openpyxl</code>. Builds styled headers, zebra-striped rows, auto-sized columns, and saves to <code>backend/data/output/</code> for secure client download.</div>
+    <div class="file-item-deps">&bull; Called By: tools/registry.py &bull; Calls: openpyxl, config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/eval/retrieval_eval.py</code></span>
+      <span class="tag tag-file">RAG Evaluation Suite</span>
+    </div>
+    <div class="file-item-desc">Evaluation harness for retrieval quality. Computes Hit Rate@K, Mean Reciprocal Rank (MRR@K), and Normalized Discounted Cumulative Gain (NDCG) across golden evaluation datasets.</div>
+    <div class="file-item-deps">&bull; Standalone CLI &bull; Calls: retrieval/pipeline.py, config.py</div>
+  </div>
+</div>
+
+<h3>5.7 Database, Frontend & Orchestration Layer</h3>
+<div class="file-grid">
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/db/models.py</code></span>
+      <span class="tag tag-db">SQLAlchemy 2.0 Models</span>
+    </div>
+    <div class="file-item-desc">Declarative ORM models: <code>UserModel</code>, <code>UserSessionModel</code>, <code>DocumentModel</code>, <code>IngestJobModel</code>, <code>ConversationModel</code>, and <code>MessageModel</code>. Supports multi-tenant foreign keys, JSON metadata, and cascading deletes.</div>
+    <div class="file-item-deps">&bull; Called By: All DB services &bull; Calls: sqlalchemy.orm</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/db/session.py</code></span>
+      <span class="tag tag-db">Database Session Engine</span>
+    </div>
+    <div class="file-item-desc">Manages async database engine and session factory (<code>AsyncSessionLocal</code>). Automatically manages PostgreSQL (<code>asyncpg</code>) connection pools and SQLite (<code>aiosqlite</code>) file locks.</div>
+    <div class="file-item-deps">&bull; Called By: main.py, all API routers &bull; Calls: sqlalchemy.ext.asyncio, config.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/db/migrate_sqlite_to_pg.py</code></span>
+      <span class="tag tag-db">Migration Utility</span>
+    </div>
+    <div class="file-item-desc">Automated schema and data migration utility. Reads tables and rows from local SQLite and inserts them into PostgreSQL with foreign key order preservation and conflict resolution.</div>
+    <div class="file-item-deps">&bull; Standalone CLI &bull; Calls: db/models.py, db/session.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>backend/alembic/</code></span>
+      <span class="tag tag-db">Alembic Schema Migrations</span>
+    </div>
+    <div class="file-item-desc">Alembic migration environment. Version script <code>5d85f0b5984c_initial_schema_with_tenancy_and_jobs.py</code> establishes tables, tenancy indexes, and foreign keys across production databases.</div>
+    <div class="file-item-deps">&bull; Standalone CLI (alembic upgrade head) &bull; Calls: alembic.ini, db/models.py</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>frontend/src/App.jsx</code> & <code>App.css</code></span>
+      <span class="tag tag-file">React SPA & State Core</span>
+    </div>
+    <div class="file-item-desc">Main React application container. Manages application state (active document, conversation ID, settings, tool modals), orchestrates SSE streams and WebSocket events, and coordinates panel resizing.</div>
+    <div class="file-item-deps">&bull; Mounted By: index.js &bull; Calls: components/ Header, Chat, PdfViewer, Tools, Auth, Sidebar</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>frontend/src/services/api.js</code> & <code>websocket.js</code></span>
+      <span class="tag tag-file">Client Networking Services</span>
+    </div>
+    <div class="file-item-desc">Frontend networking layer. <code>api.js</code> handles Axios REST calls with automatic JWT headers. <code>websocket.js</code> manages resilient WebSocket connections, auto-reconnect, and progress callbacks.</div>
+    <div class="file-item-deps">&bull; Called By: App.jsx, ChatArea.jsx &bull; Calls: Native WebSocket API, axios</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>frontend/src/components/PdfViewer/PdfViewerDrawer.jsx</code></span>
+      <span class="tag tag-file">PDF Canvas Viewer</span>
+    </div>
+    <div class="file-item-desc">PDF.js HTML5 canvas document renderer. Normalizes bounding box coordinates across varying PDF page zoom scales and renders the pulsing fluorescent highlight box directly over answer citations.</div>
+    <div class="file-item-deps">&bull; Called By: App.jsx &bull; Calls: pdfjs-dist</div>
+  </div>
+
+  <div class="file-item">
+    <div class="file-item-name">
+      <span><code>docker-compose.yml</code></span>
+      <span class="tag tag-server">Microservices Orchestrator</span>
+    </div>
+    <div class="file-item-desc">Production Docker Compose specification defining all 8 services: <code>backend</code>, <code>worker</code>, <code>frontend</code>, <code>qdrant</code>, <code>docling</code>, <code>ollama</code>, <code>postgres</code>, and <code>redis</code>, with volume mounts, healthchecks, and restart policies.</div>
+    <div class="file-item-deps">&bull; Executed By: docker compose up -d</div>
+  </div>
+</div>
+
+<!-- ================= SECTION 6 ================= -->
+<div class="page-break"></div>
+<h2>6. Data Schemas, Resiliency & Quick Reference</h2>
+
+<h3>6.1 Summary Matrix: What Server & Model Runs at Each Step</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 14%;">Pipeline Stage</th>
+      <th style="width: 20%;">Primary Source File</th>
+      <th style="width: 18%;">Caller &rarr; Target</th>
+      <th style="width: 20%;">Model / Technology</th>
+      <th style="width: 28%;">Primary Artifact / Output Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1. Upload</td>
+      <td><code>api/documents.py</code></td>
+      <td>React (3000) &rarr; FastAPI (5000)</td>
+      <td>HTTP Multipart POST</td>
+      <td><code>backend/data/uploads/{id}_{file}</code></td>
+    </tr>
+    <tr>
+      <td>2. Job Enqueue</td>
+      <td><code>workers/job_queue.py</code></td>
+      <td>FastAPI &rarr; Redis (6379)</td>
+      <td>Redis RPUSH / Task Pool</td>
+      <td><code>IngestJobModel(status="queued")</code></td>
+    </tr>
+    <tr>
+      <td>3. Format Conversion</td>
+      <td><code>parsers/converter.py</code></td>
+      <td>Worker Process &rarr; CLI</td>
+      <td>LibreOffice / PyMuPDF</td>
+      <td><code>backend/data/converted/{id}.pdf</code></td>
+    </tr>
+    <tr>
+      <td>4. Layout Parsing</td>
+      <td><code>parsers/docling_parser.py</code></td>
+      <td>Worker &rarr; Docling (5001)</td>
+      <td>Docling / TableFormer / Fitz</td>
+      <td><code>List[ParsedElement]</code> with exact BBoxes</td>
+    </tr>
+    <tr>
+      <td>5. Token Chunking</td>
+      <td><code>chunking/structure_chunker.py</code></td>
+      <td>In-Process (Worker)</td>
+      <td>Tiktoken Structure Slicing</td>
+      <td><code>List[Chunk]</code> (~400 tokens + bboxes)</td>
+    </tr>
+    <tr>
+      <td>6. Embeddings</td>
+      <td><code>embeddings/embedder.py</code></td>
+      <td>Worker &rarr; Ollama / FastEmbed</td>
+      <td>Nomic 768d / BGE-small 384d</td>
+      <td>Normalized floating-point vectors</td>
+    </tr>
+    <tr>
+      <td>7. Vector Index</td>
+      <td><code>retrieval/vector_store.py</code></td>
+      <td>Worker &rarr; Qdrant (6333)</td>
+      <td>Qdrant HNSW Graph Index</td>
+      <td>Points in collection <code>doc_chunks</code></td>
+    </tr>
+    <tr>
+      <td>8. BM25 Index</td>
+      <td><code>retrieval/bm25.py</code></td>
+      <td>In-Process (Worker)</td>
+      <td>BM25Plus Inverted Index</td>
+      <td><code>backend/data/bm25/{doc_id}.json</code></td>
+    </tr>
+    <tr>
+      <td>9. User Query</td>
+      <td><code>api/chat.py</code> / <code>websockets.py</code></td>
+      <td>React (3000) &rarr; FastAPI (5000)</td>
+      <td>SSE Stream / WebSocket</td>
+      <td>User message record in database</td>
+    </tr>
+    <tr>
+      <td>10. Tool Check</td>
+      <td><code>tools/registry.py</code></td>
+      <td>FastAPI &rarr; AST Sandbox</td>
+      <td>Safe AST / OpenPyXL / DDG</td>
+      <td>Calculated result or downloadable Excel</td>
+    </tr>
+    <tr>
+      <td>11. Query Rewriting</td>
+      <td><code>llm/rewriter.py</code></td>
+      <td>FastAPI &rarr; Ollama (11434)</td>
+      <td><code>qwen2.5:3b</code> / <code>7b</code> Model</td>
+      <td>3 pronoun-resolved search queries</td>
+    </tr>
+    <tr>
+      <td>12. Hybrid Search</td>
+      <td><code>retrieval/pipeline.py</code></td>
+      <td>FastAPI &rarr; Qdrant & BM25</td>
+      <td>Cosine ANN + BM25 Lexical</td>
+      <td>Top 60 candidate chunks</td>
+    </tr>
+    <tr>
+      <td>13. Fusion & Dedup</td>
+      <td><code>retrieval/fusion.py</code> & <code>dedup.py</code></td>
+      <td>In-Process</td>
+      <td>RRF ($k=60$) + Jaccard 3-Gram</td>
+      <td>Top 40 non-duplicate candidate chunks</td>
+    </tr>
+    <tr>
+      <td>14. Cross-Rerank</td>
+      <td><code>retrieval/reranker.py</code></td>
+      <td>In-Process &rarr; PyTorch/ONNX</td>
+      <td><code>BAAI/bge-reranker-base</code></td>
+      <td>Top 3 chunks with score $\ge 0.25$</td>
+    </tr>
+    <tr>
+      <td>15. Generation</td>
+      <td><code>llm/generator.py</code></td>
+      <td>FastAPI &rarr; Ollama (11434)</td>
+      <td><code>qwen2.5:3b</code> / <code>7b</code> via LangChain</td>
+      <td>Streamed token response + citations</td>
+    </tr>
+    <tr>
+      <td>16. Highlight</td>
+      <td><code>generator.py</code> & <code>PdfViewerDrawer.jsx</code></td>
+      <td>FastAPI &rarr; React Canvas</td>
+      <td><code>refine_citations_for_answer</code></td>
+      <td>Pulsing fluorescent highlight on PDF.js</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>6.2 Resiliency & Built-in Automatic Fallbacks</h3>
+<table>
+  <thead>
+    <tr>
+      <th style="width: 22%;">Component / Fault Point</th>
+      <th style="width: 20%;">Primary Execution Engine</th>
+      <th style="width: 26%;">Automatic Fallback Mechanism</th>
+      <th style="width: 32%;">User / System Impact</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Document Parser</strong></td>
+      <td>Docling-serve container (Port 5001)</td>
+      <td>Local <code>pymupdf</code> (Fitz) structural parser</td>
+      <td>Zero downtime. Automatically extracts text blocks and coordinates offline.</td>
+    </tr>
+    <tr>
+      <td><strong>Vector Database</strong></td>
+      <td>Qdrant Server (Port 6333)</td>
+      <td>Embedded local Qdrant (<code>data/qdrant_storage</code>)</td>
+      <td>Full vector search operates locally without Docker container.</td>
+    </tr>
+    <tr>
+      <td><strong>Relational Database</strong></td>
+      <td>PostgreSQL 16 (Port 5432)</td>
+      <td>SQLite local database (<code>data/rag_app.db</code>)</td>
+      <td>Complete persistence for users, jobs, and chat histories without Postgres.</td>
+    </tr>
+    <tr>
+      <td><strong>Job Message Broker</strong></td>
+      <td>Redis 7 Broker (Port 6379)</td>
+      <td>FastAPI asynchronous background task pool</td>
+      <td>Ingestion jobs execute seamlessly in-process with persistent DB tracking.</td>
+    </tr>
+    <tr>
+      <td><strong>Embeddings Engine</strong></td>
+      <td>Ollama (<code>nomic-embed-text</code>)</td>
+      <td>FastEmbed ONNX (<code>bge-small-en-v1.5</code>)</td>
+      <td>Sub-second local CPU embeddings if Ollama is busy or unreachable.</td>
+    </tr>
+    <tr>
+      <td><strong>Office File Converter</strong></td>
+      <td>Headless LibreOffice CLI</td>
+      <td>PyMuPDF text-canvas generation</td>
+      <td>Converts text and images to PDF without external office software.</td>
+    </tr>
+    <tr>
+      <td><strong>Password Hashing</strong></td>
+      <td>Argon2id (<code>argon2_cffi</code>)</td>
+      <td>PBKDF2-HMAC-SHA256 (100k rounds)</td>
+      <td>Zero dependency breaks; constant-time hash verification.</td>
+    </tr>
+    <tr>
+      <td><strong>Live Web Search</strong></td>
+      <td>Yahoo Finance & DuckDuckGo Lite</td>
+      <td>Wikipedia REST API</td>
+      <td>Factual lookups succeed without third-party API keys or rate limits.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout callout-success avoid-break" style="margin-top: 18px;">
+  <strong>Production Readiness Certification:</strong> DocuChat AI is architected with complete decoupled fault isolation. The entire RAG lifecycle can operate either as an enterprise 8-container Kubernetes/Docker cluster or as an air-gapped standalone developer workstation with local SQLite and FastEmbed ONNX.
+</div>
+
+</body>
+</html>

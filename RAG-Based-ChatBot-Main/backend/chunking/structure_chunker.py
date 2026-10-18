@@ -4,10 +4,22 @@ from typing import List, Dict, Any, Optional
 from backend.parsers.docling_parser import ParsedElement
 from backend.config import settings
 
-def estimate_tokens(text: str) -> int:
-    """Approximate token count (whitespace + punctuation splitting or ~4 chars/token)."""
-    words = re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
-    return max(1, len(words))
+try:
+    import tiktoken
+    _enc = tiktoken.get_encoding("cl100k_base")
+    def estimate_tokens(text: str) -> int:
+        if not text:
+            return 0
+        try:
+            return len(_enc.encode(text, disallowed_special=()))
+        except Exception:
+            return max(1, len(text.split()))
+except Exception:
+    def estimate_tokens(text: str) -> int:
+        if not text:
+            return 0
+        words = re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
+        return max(1, len(words))
 
 class Chunk:
     def __init__(
@@ -19,7 +31,8 @@ class Chunk:
         bboxes: List[Dict[str, Any]],
         heading_path: List[str],
         token_count: int,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_id: Optional[str] = None
     ):
         self.chunk_id = chunk_id
         self.doc_id = doc_id
@@ -28,7 +41,10 @@ class Chunk:
         self.bboxes = bboxes
         self.heading_path = heading_path
         self.token_count = token_count
+        self.parent_id = parent_id
         self.metadata = metadata or {}
+        if parent_id:
+            self.metadata["parent_id"] = parent_id
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -39,8 +55,10 @@ class Chunk:
             "bboxes": self.bboxes,
             "heading_path": self.heading_path,
             "token_count": self.token_count,
+            "parent_id": self.parent_id,
             "metadata": self.metadata,
         }
+
 
 class StructureChunker:
     def __init__(
@@ -77,7 +95,9 @@ class StructureChunker:
             if not full_text:
                 return
 
-            primary_page = current_pages[0] if current_pages else 1
+            from collections import Counter
+            page_counts = Counter(current_pages)
+            primary_page = page_counts.most_common(1)[0][0] if page_counts else 1
             chunk_obj = Chunk(
                 chunk_id=str(uuid.uuid4()),
                 doc_id=doc_id,
@@ -86,7 +106,7 @@ class StructureChunker:
                 bboxes=list(current_bboxes),
                 heading_path=list(current_headings),
                 token_count=current_tokens,
-                metadata={"page_list": list(set(current_pages))}
+                metadata={"page_list": list(sorted(set(current_pages)))}
             )
             chunks.append(chunk_obj)
 
@@ -184,6 +204,39 @@ class StructureChunker:
                 current_headings = elem.heading_path
 
             # Case 3: Overflow check
+            if elem_tokens > self.max_tokens and elem.elem_type != "table":
+                # Large text element - split at sentence boundaries
+                if current_texts:
+                    flush_current()
+                sentences = re.split(r'(?<=[.?!])\s+', elem.text)
+                sent_batch = []
+                sent_tokens = 0
+                for s in sentences:
+                    st = estimate_tokens(s)
+                    if sent_tokens + st > self.max_tokens and sent_batch:
+                        chunk_text = " ".join(sent_batch)
+                        chunks.append(Chunk(
+                            chunk_id=str(uuid.uuid4()),
+                            doc_id=doc_id,
+                            text=chunk_text,
+                            page=elem.page,
+                            bboxes=elem.bboxes,
+                            heading_path=elem.heading_path,
+                            token_count=sent_tokens
+                        ))
+                        sent_batch = [s]
+                        sent_tokens = st
+                    else:
+                        sent_batch.append(s)
+                        sent_tokens += st
+                if sent_batch:
+                    current_texts = [" ".join(sent_batch)]
+                    current_bboxes = list(elem.bboxes)
+                    current_pages = [elem.page]
+                    current_headings = elem.heading_path
+                    current_tokens = sent_tokens
+                continue
+
             if current_tokens + elem_tokens > self.max_tokens and current_texts:
                 flush_current()
 
@@ -198,21 +251,25 @@ class StructureChunker:
         if current_texts:
             full_text = "\n\n".join(current_texts).strip()
             if full_text:
+                from collections import Counter
+                page_counts = Counter(current_pages)
+                final_page = page_counts.most_common(1)[0][0] if page_counts else 1
                 chunks.append(Chunk(
                     chunk_id=str(uuid.uuid4()),
                     doc_id=doc_id,
                     text=full_text,
-                    page=current_pages[0] if current_pages else 1,
+                    page=final_page,
                     bboxes=list(current_bboxes),
                     heading_path=list(current_headings),
                     token_count=current_tokens,
-                    metadata={"page_list": list(set(current_pages))}
+                    metadata={"page_list": list(sorted(set(current_pages)))}
                 ))
 
         return chunks
 
 structure_chunker = StructureChunker(
-    min_tokens=settings.CHUNK_TARGET_TOKENS - 100,
-    max_tokens=settings.CHUNK_TARGET_TOKENS + 100,
+    min_tokens=250,
+    max_tokens=settings.CHUNK_MAX_TOKENS,
     overlap_percent=0.12
 )
+

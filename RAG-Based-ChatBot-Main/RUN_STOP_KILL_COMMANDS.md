@@ -3,6 +3,31 @@
 
 ---
 
+## 🚀 Standard Startup Form (Normal 3-Terminal Flow)
+
+To run the complete application in the standard, normal form:
+
+### 1️⃣ Start Supporting Containers (Qdrant, Redis, Postgres, Docling, Ollama)
+```bash
+docker compose up -d
+```
+
+### 2️⃣ Start Backend (FastAPI on Port 5000)
+```bash
+cd backend
+python main.py
+```
+*(Runs at `http://localhost:5000` — interactive docs at `http://localhost:5000/docs`)*
+
+### 3️⃣ Start Frontend (React on Port 3000)
+```bash
+cd frontend
+npm start
+```
+*(Runs at `http://localhost:3000`)*
+
+---
+
 ## 📌 1. Quick Reference Cheat Sheet
 
 | Service | 🚀 RUN Command | ⏹️ STOP Command (Graceful) | 💀 KILL Command (Force Kill) |

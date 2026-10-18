@@ -1,143 +1,129 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 
-const API_BASE = "http://localhost:5000/api";
+// Modular Services
+import { api } from "./services/api";
+import { chatWs, subscribeDocumentProgress } from "./services/websocket";
 
-// Helper: Parse inline citations [1], [2] into interactive clickable tags
-function renderMarkdownWithCitations(content, citations, onCitationClick) {
-  if (!content) return null;
-  const lines = content.split("\n");
-
-  return (
-    <div className="markdown-content">
-      {lines.map((line, lineIdx) => {
-        // Table row detection
-        if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-          return (
-            <div
-              key={lineIdx}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "12.5px",
-                background: "var(--card-bg)",
-                padding: "3px 8px",
-                borderRadius: "4px",
-                margin: "2px 0",
-              }}
-            >
-              {line}
-            </div>
-          );
-        }
-
-        // Code block separator
-        if (line.trim().startsWith("```")) {
-          return (
-            <div
-              key={lineIdx}
-              style={{
-                borderTop: "1px dashed var(--toolbar-border)",
-                margin: "8px 0",
-              }}
-            />
-          );
-        }
-
-        // Parse citation tags like [1], [2], [1, 2]
-        const parts = line.split(/(\[\d+(?:,\s*\d+)*\])/g);
-
-        return (
-          <p
-            key={lineIdx}
-            style={{
-              minHeight: line.trim() ? "auto" : "8px",
-              margin: "6px 0",
-              lineHeight: 1.6,
-            }}
-          >
-            {parts.map((part, pIdx) => {
-              const citeMatch = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/);
-              if (citeMatch) {
-                const numbers = citeMatch[1]
-                  .split(",")
-                  .map((n) => parseInt(n.trim(), 10));
-                return (
-                  <span key={pIdx}>
-                    {numbers.map((num) => {
-                      const matchedCitation = citations?.find(
-                        (c) => c.source_index === num
-                      );
-                      return (
-                        <button
-                          key={num}
-                          className="citation-pill"
-                          title={
-                            matchedCitation
-                              ? `Page ${matchedCitation.page}: ${matchedCitation.snippet?.slice(0, 100)}...`
-                              : `Citation [${num}]`
-                          }
-                          onClick={() =>
-                            onCitationClick &&
-                            onCitationClick(num, matchedCitation)
-                          }
-                        >
-                          [{num}]
-                        </button>
-                      );
-                    })}
-                  </span>
-                );
-              }
-
-              // Bold text parsing
-              const subParts = part.split(/(\*\*.*?\*\*)/g);
-              return subParts.map((sub, sIdx) => {
-                if (sub.startsWith("**") && sub.endsWith("**")) {
-                  return (
-                    <strong key={sIdx} style={{ fontWeight: 650 }}>
-                      {sub.slice(2, -2)}
-                    </strong>
-                  );
-                }
-                return sub;
-              });
-            })}
-          </p>
-        );
-      })}
-    </div>
-  );
-}
+// Modular Components
+import Navbar from "./components/Header/Navbar";
+import Sidebar from "./components/Sidebar/Sidebar";
+import ChatArea from "./components/Chat/ChatArea";
+import ChatInput from "./components/Chat/ChatInput";
+import SideDocumentViewer from "./components/DocumentViewer/SideDocumentViewer";
+import ToolsPopover from "./components/Tools/ToolsPopover";
+import ToolExecutionModal from "./components/Tools/ToolExecutionModal";
+import SettingsModal from "./components/Settings/SettingsModal";
+import AuthModal from "./components/Auth/AuthModal";
+import HistoryModal from "./components/Chat/HistoryModal";
+import ProjectsModal from "./components/Projects/ProjectsModal";
+import AdminPasswordModal from "./components/Auth/AdminPasswordModal";
+import HelpModal from "./components/Help/HelpModal";
 
 export default function App() {
-  // Theme State: "dark" or "light"
-  const [theme, setTheme] = useState(() => localStorage.getItem("docuchat_theme") || "dark");
+  // Theme State
+  const [theme, setTheme] = useState(() => localStorage.getItem("docuchat_theme") || "light");
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     setTheme(nextTheme);
     localStorage.setItem("docuchat_theme", nextTheme);
   };
 
-  // ChatGPT 3-Lines Top-Right Menu State
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-
-  // Close menu on click outside
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setMenuOpen(false);
-      }
+    document.documentElement.setAttribute("data-theme", theme);
+    document.body.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  // View Modes: "split" | "chat" | "document"
+  const [viewMode, setViewMode] = useState("chat");
+  const [chatSplitPercent, setChatSplitPercent] = useState(50);
+  const [isResizingSplit, setIsResizingSplit] = useState(false);
+  const isResizingRef = useRef(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Drag resizer handler for flexible split-view panels
+  const handleResizerMouseDown = (e) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    setIsResizingSplit(true);
+    document.body.classList.add("resizing-active");
+
+    const onMouseMove = (moveEvent) => {
+      if (!isResizingRef.current) return;
+      const container = document.querySelector(".chatgpt-split-workspace-body");
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const relativeX = moveEvent.clientX - rect.left;
+      const newPercent = Math.max(25, Math.min(75, (relativeX / rect.width) * 100));
+      setChatSplitPercent(newPercent);
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
-  // Navigation & Tabs
-  const [navTab, setNavTab] = useState("chat"); // "chat" | "ask"
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      setIsResizingSplit(false);
+      document.body.classList.remove("resizing-active");
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
 
-  // User Authentication State
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem("docuchat_token") || "");
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
+  // Tools Popover & Execution Modals
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [activeToolModal, setActiveToolModal] = useState({ isOpen: false, toolId: null });
+
+  // Drawers & Modals
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("appearance");
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [adminPwdModalOpen, setAdminPwdModalOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // Projects State
+  const [projects, setProjects] = useState([
+    {
+      id: "proj-1",
+      title: "Enterprise RAG & AI Intelligence",
+      description: "Default workspace for deep document search, tables, and grounded QA",
+      doc_count: 2,
+      created_at: "Today"
+    },
+    {
+      id: "proj-2",
+      title: "Financial & Quarterly Audits",
+      description: "Spreadsheets, earnings reports, and quantitative analytics",
+      doc_count: 1,
+      created_at: "Yesterday"
+    },
+    {
+      id: "proj-3",
+      title: "Technical Research & Papers",
+      description: "Transformer architectures, attention mechanisms, and model evaluations",
+      doc_count: 1,
+      created_at: "3 days ago"
+    }
+  ]);
+  const [activeProjectId, setActiveProjectId] = useState("proj-1");
+
+  const handleOpenSettings = () => {
+    setSettingsTab("appearance");
+    setSettingsOpen(true);
+  };
+
+  const handleOpenDeveloperSettings = () => {
+    setSettingsTab("rag_admin");
+    setSettingsOpen(true);
+  };
+
+  // Real-Web Mode State
+  const [webMode, setWebMode] = useState(false);
+
+  // User State
   const [currentUser, setCurrentUser] = useState(() => {
     try {
       const saved = localStorage.getItem("docuchat_user");
@@ -146,14 +132,16 @@ export default function App() {
       return null;
     }
   });
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authTab, setAuthTab] = useState("login"); // "login" | "register"
-  const [authUsername, setAuthUsername] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authEmail, setAuthEmail] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [authError, setAuthError] = useState("");
-  const [authLoading, setAuthLoading] = useState(false);
+
+  // Documents State
+  const [documents, setDocuments] = useState([]);
+  const [activeDoc, setActiveDoc] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Split-View Document State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [activeHighlights, setActiveHighlights] = useState([]);
+  const [focusedCitation, setFocusedCitation] = useState(null);
 
   // Conversations & Messages
   const [conversations, setConversations] = useState([]);
@@ -161,1971 +149,901 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [abortController, setAbortController] = useState(null);
 
-  // Ask a Question Tab State (Single-Turn Q&A)
-  const [askQuery, setAskQuery] = useState("");
-  const [askAnswer, setAskAnswer] = useState("");
-  const [askCitations, setAskCitations] = useState([]);
-  const [isAsking, setIsAsking] = useState(false);
-
-  // Documents & Scope
-  const [documents, setDocuments] = useState([]);
-  const [selectedDocScope, setSelectedDocScope] = useState("all");
-  const [uploading, setUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState("");
-
-  // Developer Settings Drawer
-  const [devSettingsOpen, setDevSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("rag"); // "rag" | "docs" | "history"
+  // RAG Engine Settings
   const [topK, setTopK] = useState(5);
   const [scoreThreshold, setScoreThreshold] = useState(0.25);
   const [fusionMethod, setFusionMethod] = useState("rrf");
   const [fusionAlpha, setFusionAlpha] = useState(0.5);
   const [routerMode, setRouterMode] = useState("hybrid");
-  const [temperature, setTemperature] = useState(0.1);
+  const [temperature, setTemperature] = useState(0.0);
+  const [llmModel, setLlmModel] = useState("Qwen 2.5 3B");
+  const [embeddingModel, setEmbeddingModel] = useState("nomic-embed-text:v1.5");
 
-  // PDF Viewer Drawer
-  const [viewerOpen, setViewerOpen] = useState(false);
-  const [viewerDoc, setViewerDoc] = useState(null);
-  const [viewerPdf, setViewerPdf] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [zoomScale, setZoomScale] = useState(1.0);
-  const [activeHighlights, setActiveHighlights] = useState([]);
-  const [focusedCitationIndex, setFocusedCitationIndex] = useState(null);
-
-  // Refs
-  const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const canvasRef = useRef(null);
-
-  // Helper for auth headers
-  const getAuthHeaders = useCallback(() => {
-    const headers = { "Content-Type": "application/json" };
-    if (authToken) {
-      headers["Authorization"] = `Bearer ${authToken}`;
-    }
-    return headers;
-  }, [authToken]);
-
-  // Scroll to bottom of message list
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Load initial data
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Load initial conversations & documents
-  useEffect(() => {
-    fetchConversations();
-    fetchDocuments();
-    if (authToken) {
-      verifyCurrentUser();
-    }
+    loadUserWorkspace();
+    checkHealth();
   }, []);
 
-  // Poll processing documents
+  // Keyboard shortcut (Cmd+K / Ctrl+K)
   useEffect(() => {
-    const hasProcessing = documents.some((d) => d.status === "processing");
-    if (!hasProcessing) return;
-    const interval = setInterval(fetchDocuments, 3000);
-    return () => clearInterval(interval);
-  }, [documents]);
-
-  // Verify current user session
-  const verifyCurrentUser = async () => {
-    if (!authToken) return;
-    try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentUser(data.user);
-        localStorage.setItem("docuchat_user", JSON.stringify(data.user));
-      } else {
-        handleLogout();
+    const handleGlobalKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const searchInput = document.querySelector(".sidebar-search-field");
+        if (searchInput) searchInput.focus();
       }
-    } catch (e) {
-      console.error("Error verifying user session:", e);
-    }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
+  // Connect WebSocket chat stream
+  useEffect(() => {
+    const token = localStorage.getItem("docuchat_token");
+    chatWs.connect(token);
+    return () => {
+      chatWs.disconnect();
+    };
+  }, [currentUser]);
+
+  const checkHealth = async () => {
+    try {
+      const data = await api.getHealth();
+      if (data.llm_model) {
+        setLlmModel(data.llm_model.includes("7b") ? "Qwen 2.5 7B" : "Qwen 2.5 3B");
+      }
+      if (data.embedding_model) {
+        setEmbeddingModel(data.embedding_model);
+      }
+    } catch {}
   };
 
-  // Auth: Login / Register
-  const handleAuthSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setAuthError("");
-    setAuthLoading(true);
-
-    const endpoint = authTab === "login" ? `${API_BASE}/auth/login` : `${API_BASE}/auth/register`;
-    const payload =
-      authTab === "login"
-        ? { username: authUsername.trim(), password: authPassword }
-        : { username: authUsername.trim(), password: authPassword, email: authEmail.trim() || null };
-
+  const loadUserWorkspace = async () => {
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.detail || "Authentication failed");
-      }
-
-      setAuthToken(data.token);
-      setCurrentUser(data.user);
-      localStorage.setItem("docuchat_token", data.token);
-      localStorage.setItem("docuchat_user", JSON.stringify(data.user));
-      setAuthModalOpen(false);
-      setAuthPassword("");
-      setAuthError("");
-    } catch (err) {
-      setAuthError(err.message || "Failed to authenticate");
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Quick 1-click Demo Login
-  const handleDemoLogin = async () => {
-    setAuthUsername("admin");
-    setAuthPassword("admin123");
-    setAuthError("");
-    setAuthLoading(true);
-
-    try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "admin", password: "admin123" }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setAuthToken(data.token);
-        setCurrentUser(data.user);
-        localStorage.setItem("docuchat_token", data.token);
-        localStorage.setItem("docuchat_user", JSON.stringify(data.user));
-        setAuthModalOpen(false);
-      } else {
-        setAuthError(data.detail || "Demo login failed");
-      }
-    } catch (err) {
-      setAuthError(err.message || "Demo login network error");
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  // Logout
-  const handleLogout = async () => {
-    if (authToken) {
-      try {
-        await fetch(`${API_BASE}/auth/logout`, {
-          method: "POST",
-          headers: getAuthHeaders(),
-        });
-      } catch (e) {
-        console.error("Logout error:", e);
-      }
-    }
-    setAuthToken("");
-    setCurrentUser(null);
-    localStorage.removeItem("docuchat_token");
-    localStorage.removeItem("docuchat_user");
-  };
-
-  // Conversations API
-  const fetchConversations = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/conversations`, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data);
-        if (data.length > 0 && !activeConvId) {
-          selectConversation(data[0].id);
+      // 1. Fetch conversations for current user
+      const convs = await api.listConversations();
+      if (convs && convs.length > 0) {
+        setConversations(convs);
+        const mostRecent = convs[0];
+        setActiveConvId(mostRecent.id);
+        try {
+          const detail = await api.getConversation(mostRecent.id);
+          const msgs = detail?.messages || [];
+          setMessages(msgs);
+          const lastAsst = [...msgs].reverse().find(m => m.role === "assistant" && m.citations && m.citations.length > 0);
+          if (lastAsst) {
+            const allBoxes = lastAsst.citations.flatMap(c => (c.bboxes || []).map(b => ({
+              ...b,
+              page: Number(b.page || c.page || 1),
+              source_index: b.source_index || c.source_index
+            })));
+            setActiveHighlights(allBoxes);
+            const topCite = lastAsst.citations[0];
+            setFocusedCitation(topCite);
+            if (topCite?.page) setCurrentPage(Number(topCite.page));
+          } else {
+            setActiveHighlights([]);
+            setFocusedCitation(null);
+          }
+        } catch {
+          setMessages([]);
+          setActiveHighlights([]);
+          setFocusedCitation(null);
         }
+      } else {
+        setConversations([]);
+        setActiveConvId(null);
+        setMessages([]);
+        setActiveHighlights([]);
+        setFocusedCitation(null);
       }
     } catch (e) {
-      console.error("Error fetching conversations:", e);
+      console.warn("Could not load conversations:", e);
+      setConversations([]);
+      setActiveConvId(null);
+      setMessages([]);
+      setActiveHighlights([]);
+      setFocusedCitation(null);
+    }
+
+    try {
+      // 2. Fetch documents for current user
+      const docs = await api.listDocuments();
+      if (docs && docs.length > 0) {
+        setDocuments(docs);
+        setActiveDoc(docs[0]);
+        setViewMode("split");
+      } else {
+        setDocuments([]);
+        setActiveDoc(null);
+        setViewMode("chat");
+      }
+    } catch (e) {
+      console.warn("Could not load documents:", e);
+      setDocuments([]);
+      setActiveDoc(null);
+      setViewMode("chat");
+    }
+  };
+
+  const loadDocuments = async () => {
+    try {
+      const docs = await api.listDocuments();
+      if (docs && docs.length > 0) {
+        setDocuments(docs);
+        setActiveDoc((prev) => (prev ? docs.find((d) => d.id === prev.id) || docs[0] : docs[0]));
+      } else {
+        setDocuments([]);
+        setActiveDoc(null);
+        setViewMode("chat");
+      }
+    } catch (e) {
+      console.warn("Could not load documents:", e);
+      setDocuments([]);
+      setActiveDoc(null);
+    }
+  };
+
+  const loadConversations = async () => {
+    try {
+      const convs = await api.listConversations();
+      if (convs && convs.length > 0) {
+        setConversations(convs);
+      } else {
+        setConversations([]);
+      }
+    } catch (e) {
+      console.warn("Could not load conversations:", e);
+      setConversations([]);
     }
   };
 
   const selectConversation = async (convId) => {
     setActiveConvId(convId);
     try {
-      const res = await fetch(`${API_BASE}/conversations/${convId}`, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(data.messages || []);
+      const conv = await api.getConversation(convId);
+      if (conv && conv.messages) {
+        const msgs = conv.messages;
+        setMessages(msgs);
+        const lastAsst = [...msgs].reverse().find(m => m.role === "assistant" && m.citations && m.citations.length > 0);
+        if (lastAsst) {
+          const allBoxes = lastAsst.citations.flatMap(c => (c.bboxes || []).map(b => ({
+            ...b,
+            page: Number(b.page || c.page || 1),
+            source_index: b.source_index || c.source_index
+          })));
+          setActiveHighlights(allBoxes);
+          const topCite = lastAsst.citations[0];
+          setFocusedCitation(topCite);
+          if (topCite?.page) setCurrentPage(Number(topCite.page));
+        } else {
+          setActiveHighlights([]);
+          setFocusedCitation(null);
+        }
+      } else {
+        setMessages([]);
+        setActiveHighlights([]);
+        setFocusedCitation(null);
       }
     } catch (e) {
-      console.error("Error loading conversation:", e);
+      console.warn("Could not fetch messages for conv:", convId);
+      setMessages([]);
+      setActiveHighlights([]);
+      setFocusedCitation(null);
     }
   };
 
-  const handleNewChat = async () => {
-    if (abortController) {
-      abortController.abort();
-      setIsGenerating(false);
-      setAbortController(null);
-    }
-    setNavTab("chat");
+  const handleNewConversation = async () => {
+    setMessages([]);
+    setActiveHighlights([]);
+    setFocusedCitation(null);
     try {
-      const res = await fetch(`${API_BASE}/conversations`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ title: "New Chat" }),
-      });
-      if (res.ok) {
-        const newConv = await res.json();
-        setConversations((prev) => [newConv, ...prev]);
-        setActiveConvId(newConv.id);
-        setMessages([]);
-      } else {
-        setActiveConvId(null);
-        setMessages([]);
-      }
-    } catch (e) {
-      console.error("Error creating new chat:", e);
+      const newConv = await api.createConversation("New Chat");
+      setConversations((prev) => [newConv, ...prev]);
+      setActiveConvId(newConv.id);
+    } catch {
+      const fallbackConv = { id: `conv_${Date.now()}`, title: "New Chat", updated_at: "Just now" };
+      setConversations((prev) => [fallbackConv, ...prev]);
+      setActiveConvId(fallbackConv.id);
+    }
+  };
+
+  const handleDeleteConversation = async (convId) => {
+    try {
+      await api.deleteConversation(convId);
+    } catch {}
+    setConversations((prev) => prev.filter((c) => c.id !== convId));
+    if (activeConvId === convId) {
       setActiveConvId(null);
       setMessages([]);
     }
   };
 
+  // Clear Chat (All Clear option inside user panel)
   const handleClearChat = () => {
     setMessages([]);
+    setActiveHighlights([]);
+    setFocusedCitation(null);
   };
 
-  const deleteConversation = async (convId, e) => {
-    if (e) e.stopPropagation();
-    if (!window.confirm("Delete this conversation?")) return;
-    try {
-      await fetch(`${API_BASE}/conversations/${convId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-      setConversations((prev) => prev.filter((c) => c.id !== convId));
-      if (activeConvId === convId) {
-        const remaining = conversations.filter((c) => c.id !== convId);
-        if (remaining.length > 0) {
-          selectConversation(remaining[0].id);
-        } else {
-          setActiveConvId(null);
-          setMessages([]);
-        }
-      }
-    } catch (e) {
-      console.error("Error deleting conversation:", e);
+  // Clear all conversations (from Settings / History modal)
+  const handleClearAllConversations = async () => {
+    for (const conv of conversations) {
+      try {
+        await api.deleteConversation(conv.id);
+      } catch {}
     }
+    setConversations([]);
+    setActiveConvId(null);
+    setMessages([]);
+    setActiveHighlights([]);
   };
 
-  // Documents API
-  const fetchDocuments = async () => {
+  // Document management (Delete and Rename from Sidebar Document Collection options menu)
+  const handleDeleteDocument = async (docId) => {
     try {
-      const res = await fetch(`${API_BASE}/documents`, {
-        headers: getAuthHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setDocuments(data);
-        if (data.length === 0) {
-          setSelectedDocScope("none");
-        } else if (selectedDocScope === "none") {
-          setSelectedDocScope("all");
-        }
-      }
-    } catch (e) {
-      console.error("Error fetching documents:", e);
-    }
-  };
-
-  const deleteDocument = async (docId, e) => {
-    if (e) e.stopPropagation();
-    if (!window.confirm("Delete this document and all its indexed chunks?")) return;
-    try {
-      await fetch(`${API_BASE}/documents/${docId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
+      await api.deleteDocument(docId);
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
-      if (viewerDoc?.id === docId) {
-        setViewerOpen(false);
-        setViewerDoc(null);
+      if (activeDoc?.id === docId) {
+        const remaining = documents.filter((d) => d.id !== docId);
+        setActiveDoc(remaining.length > 0 ? remaining[0] : null);
+        if (remaining.length === 0) {
+          setViewMode("chat");
+          setActiveHighlights([]);
+          setFocusedCitation(null);
+        }
       }
     } catch (e) {
-      console.error("Error deleting document:", e);
+      console.error("Could not delete document from backend:", e);
+      alert("Failed to delete document: " + (e.message || "Error"));
     }
   };
 
-  const handleFileUpload = async (file) => {
-    if (!file) return;
-    setUploading(true);
-    setUploadStatus(`Uploading ${file.name}...`);
+  const handleRenameDocument = (docId, newName) => {
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, filename: newName } : d))
+    );
+    if (activeDoc?.id === docId) {
+      setActiveDoc((prev) => (prev ? { ...prev, filename: newName } : null));
+    }
+  };
 
-    const formData = new FormData();
-    formData.append("file", file);
+  // Auth & Session Handlers
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch {}
+    localStorage.removeItem("docuchat_user");
+    localStorage.removeItem("docuchat_token");
+    setCurrentUser(null);
+    setDocuments([]);
+    setActiveDoc(null);
+    setConversations([]);
+    setActiveConvId(null);
+    setMessages([]);
+    setActiveHighlights([]);
+    setFocusedCitation(null);
+    setViewMode("chat");
+    setInputMessage("");
+    setAuthModalOpen(true);
+  };
+
+  const handleLogin = async (username, password) => {
+    const res = await api.login(username, password);
+    if (res.token) localStorage.setItem("docuchat_token", res.token);
+    const u = res.user ? { username: res.user.username, role: res.user.role, id: res.user.id } : { username, role: "user" };
+    setCurrentUser(u);
+    localStorage.setItem("docuchat_user", JSON.stringify(u));
+    setAuthModalOpen(false);
+    await loadUserWorkspace();
+  };
+
+  const handleRegister = async (username, password, email) => {
+    const res = await api.register(username, password, email);
+    if (res.token) localStorage.setItem("docuchat_token", res.token);
+    const u = res.user ? { username: res.user.username, role: res.user.role, id: res.user.id } : { username, role: "user" };
+    setCurrentUser(u);
+    localStorage.setItem("docuchat_user", JSON.stringify(u));
+    setAuthModalOpen(false);
+    await loadUserWorkspace();
+  };
+
+  const handleDemoLogin = async (role = "admin") => {
+    const targetUser = role === "admin" ? "admin" : "demo";
+    const targetPass = role === "admin" ? "admin123" : "demo123";
+    try {
+      const res = await api.login(targetUser, targetPass);
+      if (res.token) localStorage.setItem("docuchat_token", res.token);
+      const u = res.user ? { username: res.user.username, role: res.user.role, id: res.user.id } : { username: targetUser, role };
+      setCurrentUser(u);
+      localStorage.setItem("docuchat_user", JSON.stringify(u));
+    } catch {
+      const u = {
+        username: targetUser,
+        role: role === "admin" ? "admin" : "user"
+      };
+      setCurrentUser(u);
+      localStorage.setItem("docuchat_user", JSON.stringify(u));
+    }
+    setAuthModalOpen(false);
+    await loadUserWorkspace();
+  };
+
+  const handleRequestAdminMode = () => {
+    setAdminPwdModalOpen(true);
+  };
+
+  const handleAdminAuthSuccess = () => {
+    setCurrentUser((prev) => {
+      const updated = {
+        username: prev?.username || "amd12321",
+        role: "Enterprise Administrator (admin)"
+      };
+      localStorage.setItem("docuchat_user", JSON.stringify(updated));
+      return updated;
+    });
+    handleOpenDeveloperSettings();
+  };
+
+  const handleSwitchToUserMode = () => {
+    setCurrentUser((prev) => {
+      const updated = {
+        username: prev?.username || "amd12321",
+        role: "Standard User (Free Plan)"
+      };
+      localStorage.setItem("docuchat_user", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleToggleRole = () => {
+    const isCurrentlyAdmin = (currentUser?.role || "").toLowerCase().includes("admin");
+    if (isCurrentlyAdmin) {
+      handleSwitchToUserMode();
+    } else {
+      handleRequestAdminMode();
+    }
+  };
+
+  // Document Upload
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
     try {
-      const res = await fetch(`${API_BASE}/documents`, {
-        method: "POST",
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        body: formData,
-      });
-      if (res.ok) {
-        const docData = await res.json();
-        setDocuments((prev) => [docData, ...prev]);
-        setSelectedDocScope(docData.id);
-        setViewerDoc(docData);
-        setViewerOpen(true);
-        setCurrentPage(1);
-        setActiveHighlights([]);
-        setUploadStatus("Processing with Docling & indexing in Qdrant...");
-        setTimeout(fetchDocuments, 2000);
-      } else {
-        const err = await res.json();
-        alert(`Upload error: ${err.detail || "Upload failed"}`);
-      }
-    } catch (e) {
-      alert(`Network error during upload: ${e.message}`);
+      const uploadedDoc = await api.uploadDocument(file);
+      setDocuments((prev) => [uploadedDoc, ...prev.filter((d) => d.id !== uploadedDoc.id)]);
+      setActiveDoc(uploadedDoc);
+      setCurrentPage(1);
+      setActiveHighlights([]);
+      setFocusedCitation(null);
+      setViewMode("split");
+
+      subscribeDocumentProgress(
+        uploadedDoc.id,
+        (progressEvent) => {
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === uploadedDoc.id
+                ? { ...d, status: progressEvent.status, status_message: progressEvent.message }
+                : d
+            )
+          );
+        },
+        () => {
+          loadDocuments();
+        }
+      );
+    } catch (err) {
+      alert(`Upload error: ${err.message}`);
     } finally {
-      setTimeout(() => {
-        setUploading(false);
-        setUploadStatus("");
-      }, 3000);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
-  // Streaming Chat Send Handler
-  const handleSendMessage = async (textToSend) => {
-    const query = textToSend || inputMessage;
-    if (!query.trim() || isGenerating) return;
+  // Citation click handler: jumps side viewer to page & highlights evidence
+  const handleCitationClick = (sourceIndex, citation) => {
+    let targetCite = citation;
 
-    if (!currentUser) {
-      setAuthModalOpen(true);
-      return;
+    // If citation was not passed directly (e.g. from inline pill), look up by sourceIndex
+    if (!targetCite) {
+      const lastAsst = [...messages].reverse().find(m => m.role === "assistant" && m.citations && m.citations.length > 0);
+      const candidates = lastAsst ? lastAsst.citations : [];
+      targetCite = candidates.find(c => c.source_index === sourceIndex) || candidates[0];
+    }
+    if (!targetCite) return;
+
+    // 1. Resolve & activate the document so SideDocumentViewer is guaranteed to show
+    const targetDocId = targetCite.doc_id || targetCite.document_id;
+    const targetDocName = targetCite.filename || targetCite.doc_name;
+    let docToActivate = activeDoc;
+
+    if (!docToActivate || (targetDocId && docToActivate.id !== targetDocId)) {
+      const match = documents.find(
+        (d) => (targetDocId && d.id === targetDocId) || (targetDocName && d.filename === targetDocName)
+      );
+      if (match) {
+        docToActivate = match;
+        setActiveDoc(match);
+      } else if (targetDocId) {
+        const stub = { id: targetDocId, filename: targetDocName || "Document", file_type: "pdf" };
+        docToActivate = stub;
+        setActiveDoc(stub);
+      } else if (documents.length > 0) {
+        docToActivate = documents[0];
+        setActiveDoc(documents[0]);
+      }
+    } else if (!docToActivate && documents.length > 0) {
+      docToActivate = documents[0];
+      setActiveDoc(documents[0]);
     }
 
-    const userMsg = {
-      id: "temp_user_" + Date.now(),
-      role: "user",
-      content: query,
-      created_at: new Date().toISOString(),
-    };
+    // 2. Jump to the exact target page of this citation
+    const targetPage = Number(targetCite.page || targetCite.page_number || 1);
+    setCurrentPage(targetPage);
 
-    const tempAsstId = "temp_asst_" + Date.now();
-    const assistantMsg = {
+    // 3. Keep all generated answer highlights active across all pages (no need to click evidence to see highlights)
+    const lastAsst = [...messages].reverse().find(m => m.role === "assistant" && m.citations && m.citations.length > 0);
+    if (lastAsst?.citations && lastAsst.citations.length > 0) {
+      const allBoxes = lastAsst.citations.flatMap(c => (c.bboxes || []).map(b => ({
+        ...b,
+        page: Number(b.page || c.page || 1),
+        source_index: b.source_index || c.source_index
+      })));
+      if (allBoxes.length > 0) {
+        setActiveHighlights(allBoxes);
+      }
+    } else if (targetCite.bboxes && targetCite.bboxes.length > 0) {
+      setActiveHighlights(targetCite.bboxes);
+    }
+    setFocusedCitation(targetCite);
+
+    // 4. Switch to split view so the document panel is visible
+    setViewMode("split");
+  };
+
+  // Chat sending via WebSocket (supports Real-Web Mode and direct tool execution)
+  const handleSendMessage = (explicitText = null) => {
+    const text = (typeof explicitText === "string" ? explicitText : inputMessage).trim();
+    if (!text || isGenerating) return;
+
+    // Immediately clear previous highlights to prevent stale coordinates during consecutive queries
+    setActiveHighlights([]);
+    setFocusedCitation(null);
+
+    const tempUserMsg = {
+      id: `user_${Date.now()}`,
+      role: "user",
+      content: text,
+      created_at: new Date().toISOString()
+    };
+    const tempAsstId = `asst_${Date.now()}`;
+    const tempAsstMsg = {
       id: tempAsstId,
       role: "assistant",
       content: "",
-      router_badge: "Analyzing...",
+      router_badge: webMode ? "🌐 Live Web Search" : null,
       citations: [],
-      queries: [],
+      created_at: new Date().toISOString()
     };
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setInputMessage("");
+    setMessages((prev) => [...prev, tempUserMsg, tempAsstMsg]);
+    if (!explicitText) {
+      setInputMessage("");
+    }
     setIsGenerating(true);
 
-    const controller = new AbortController();
-    setAbortController(controller);
+    const docScopeList = activeDoc
+      ? [activeDoc.id]
+      : (documents && documents.length > 0 ? documents.map((d) => d.id) : null);
 
-    try {
-      const docScopeIds =
-        selectedDocScope === "all"
-          ? null
-          : selectedDocScope === "none"
-            ? []
-            : [selectedDocScope];
+    let accumulatedText = "";
+    let isCleanedUp = false;
 
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        signal: controller.signal,
-        body: JSON.stringify({
-          conversation_id: activeConvId,
-          message: query,
-          document_ids: docScopeIds,
-          top_k: topK,
-          score_threshold: scoreThreshold,
-          fusion_method: fusionMethod,
-          alpha: fusionAlpha,
-          router_mode: routerMode,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
-
-        for (const evt of events) {
-          if (!evt.trim()) continue;
-          const lines = evt.split("\n");
-          let eventType = "";
-          let dataStr = "";
-
-          for (const line of lines) {
-            if (line.startsWith("event:")) {
-              eventType = line.replace("event:", "").trim();
-            } else if (line.startsWith("data:")) {
-              dataStr = line.replace("data:", "").trim();
-            }
-          }
-
-          if (dataStr) {
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (eventType === "meta") {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === tempAsstId
-                      ? { ...m, router_badge: parsed.badge, queries: parsed.queries }
-                      : m
-                  )
-                );
-              } else if (eventType === "token") {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === tempAsstId ? { ...m, content: m.content + parsed.content } : m
-                  )
-                );
-              } else if (eventType === "citations") {
-                const citationsList = parsed.citations || [];
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === tempAsstId ? { ...m, citations: citationsList } : m
-                  )
-                );
-
-                if (citationsList.length > 0) {
-                  const topCitation =
-                    citationsList.find((c) => c.bboxes && c.bboxes.length > 0) ||
-                    citationsList[0];
-                  openCitationInViewer(topCitation.source_index || 1, topCitation);
-                }
-              }
-            } catch (err) {
-              console.error("Error parsing SSE data chunk:", err);
-            }
-          }
+    // Safety timeout: 120 seconds max to prevent infinite loading dots
+    const safetyTimer = setTimeout(() => {
+      if (!isCleanedUp) {
+        if (!accumulatedText) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempAsstId
+                ? {
+                    ...m,
+                    content:
+                      "⚠️ Request timed out waiting for server response. Please ensure the backend server and Ollama are running."
+                  }
+                : m
+            )
+          );
         }
+        setIsGenerating(false);
+        cleanup();
       }
-    } catch (e) {
-      if (e.name !== "AbortError") {
+    }, 120000);
+
+    const unregToken = chatWs.on("token", (data) => {
+      accumulatedText += data.content || "";
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempAsstId ? { ...m, content: accumulatedText } : m))
+      );
+    });
+
+    const unregStart = chatWs.on("start", (data) => {
+      if (data.conversation_id && !activeConvId) {
+        setActiveConvId(data.conversation_id);
+        loadConversations();
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempAsstId ? { ...m, router_badge: data.router_badge } : m))
+      );
+    });
+
+    const unregCitations = chatWs.on("citations", (data) => {
+      const citeList = data.citations || [];
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempAsstId ? { ...m, citations: citeList } : m))
+      );
+
+      if (citeList.length > 0) {
+        const topCitation = citeList[0];
+        const targetDocId = topCitation.doc_id || topCitation.document_id;
+        const targetDocName = topCitation.filename || topCitation.doc_name;
+        if (!activeDoc || (targetDocId && activeDoc.id !== targetDocId)) {
+          const match = documents.find(
+            (d) => (targetDocId && d.id === targetDocId) || (targetDocName && d.filename === targetDocName)
+          );
+          if (match) setActiveDoc(match);
+          else if (targetDocId) setActiveDoc({ id: targetDocId, filename: targetDocName || "Document", file_type: "pdf" });
+        }
+
+        // Collect ALL bounding boxes across ALL citations so EVERY generated page is highlighted immediately
+        const allGeneratedBoxes = citeList.flatMap((c) =>
+          (c.bboxes || []).map((b) => ({
+            ...b,
+            page: Number(b.page || c.page || 1),
+            source_index: b.source_index || c.source_index
+          }))
+        );
+        setActiveHighlights(allGeneratedBoxes);
+
+        setFocusedCitation(topCitation);
+        if (topCitation.page) setCurrentPage(Number(topCitation.page));
+        setViewMode("split");
+      } else {
+        // Clear highlights when no supporting document citations are returned (e.g. unsupported questions)
+        setActiveHighlights([]);
+        setFocusedCitation(null);
+      }
+    });
+
+    const unregError = chatWs.on("error", (data) => {
+      const errMsg = data?.message || "An unexpected error occurred during generation.";
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempAsstId
+            ? {
+                ...m,
+                content: accumulatedText
+                  ? `${accumulatedText}\n\n⚠️ ${errMsg}`
+                  : `⚠️ ${errMsg}`
+              }
+            : m
+        )
+      );
+      setIsGenerating(false);
+      cleanup();
+    });
+
+    const unregClose = chatWs.on("close", () => {
+      if (!accumulatedText) {
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempAsstId
-              ? { ...m, content: m.content + `\n\n*[Request error: ${e.message}]*` }
+              ? {
+                  ...m,
+                  content:
+                    "⚠️ Connection to DocuChat backend disconnected. Please check that the backend server is running."
+                }
               : m
           )
         );
       }
-    } finally {
       setIsGenerating(false);
-      setAbortController(null);
-      fetchConversations();
-    }
+      cleanup();
+    });
+
+    const unregComplete = chatWs.on("complete", () => {
+      setIsGenerating(false);
+      cleanup();
+    });
+
+    const cleanup = () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      clearTimeout(safetyTimer);
+      unregToken();
+      unregStart();
+      unregCitations();
+      unregComplete();
+      unregError();
+      unregClose();
+    };
+
+    chatWs.sendMessage({
+      message: text,
+      conversation_id: activeConvId,
+      document_ids: docScopeList,
+      top_k: topK,
+      score_threshold: scoreThreshold,
+      fusion_method: fusionMethod,
+      alpha: fusionAlpha,
+      web_mode: webMode
+    });
   };
 
   const handleStopGenerating = () => {
-    if (abortController) {
-      abortController.abort();
-      setIsGenerating(false);
-      setAbortController(null);
-    }
+    setIsGenerating(false);
   };
 
-  // Ask a Question Mode (Single Turn)
-  const handleAskQuestionSubmit = async () => {
-    if (!askQuery.trim() || isAsking) return;
-
-    if (!currentUser) {
-      setAuthModalOpen(true);
-      return;
+  // Tool Selection from Popover
+  const handleSelectTool = (toolId) => {
+    if (toolId === "web_search") {
+      setWebMode(true);
     }
-
-    setIsAsking(true);
-    setAskAnswer("");
-    setAskCitations([]);
-
-    try {
-      const docScopeIds =
-        selectedDocScope === "all"
-          ? null
-          : selectedDocScope === "none"
-            ? []
-            : [selectedDocScope];
-
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          conversation_id: null,
-          message: askQuery,
-          document_ids: docScopeIds,
-          top_k: topK,
-          score_threshold: scoreThreshold,
-          fusion_method: fusionMethod,
-          alpha: fusionAlpha,
-          router_mode: routerMode,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() || "";
-
-        for (const evt of events) {
-          if (!evt.trim()) continue;
-          const lines = evt.split("\n");
-          let eventType = "";
-          let dataStr = "";
-
-          for (const line of lines) {
-            if (line.startsWith("event:")) {
-              eventType = line.replace("event:", "").trim();
-            } else if (line.startsWith("data:")) {
-              dataStr = line.replace("data:", "").trim();
-            }
-          }
-
-          if (dataStr) {
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (eventType === "token") {
-                setAskAnswer((prev) => prev + parsed.content);
-              } else if (eventType === "citations") {
-                setAskCitations(parsed.citations || []);
-              }
-            } catch (err) {
-              console.error("Error parsing ask SSE chunk:", err);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      setAskAnswer((prev) => prev + `\n\n*[Request error: ${e.message}]*`);
-    } finally {
-      setIsAsking(false);
-    }
+    setActiveToolModal({ isOpen: true, toolId });
   };
 
-  // PDF Viewer & Bounding Box Logic
-  const openCitationInViewer = async (sourceIndex, citation, answerContext = "") => {
-    if (!citation) return;
-    setFocusedCitationIndex(sourceIndex);
-    setViewerOpen(true);
-
-    let doc = documents.find((d) => d.id === citation.doc_id);
-    if (!doc && citation.doc_id) {
-      try {
-        const res = await fetch(`${API_BASE}/documents/${citation.doc_id}`, {
-          headers: getAuthHeaders(),
-        });
-        if (res.ok) {
-          doc = await res.json();
-        }
-      } catch (e) {
-        console.error("Error fetching cited doc:", e);
-      }
-    }
-    if (doc) {
-      setViewerDoc(doc);
-    }
-
-    const targetPage =
-      (citation.bboxes && citation.bboxes.length > 0 && citation.bboxes[0].page) ||
-      citation.page ||
-      citation.page_number ||
-      1;
-    setCurrentPage(targetPage);
-
-    const allBoxes = citation.bboxes || [];
-    setActiveHighlights(allBoxes);
+  // Insert tool result into chat
+  const handleInsertToolResult = (text) => {
+    setInputMessage(text);
   };
-
-  // Render PDF Page onto HTML5 Canvas
-  const renderPdfPage = useCallback(
-    async (pdf, pageNumber) => {
-      if (!pdf || !canvasRef.current) return;
-      try {
-        const page = await pdf.getPage(pageNumber);
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext("2d");
-
-        const viewport = page.getViewport({ scale: zoomScale });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-
-        const renderContext = {
-          canvasContext: ctx,
-          viewport: viewport,
-        };
-        await page.render(renderContext).promise;
-      } catch (e) {
-        console.error("PDF page render error:", e);
-      }
-    },
-    [zoomScale]
-  );
-
-  // Load PDF document into viewer
-  useEffect(() => {
-    if (!viewerDoc || !viewerOpen) return;
-    let isCancelled = false;
-
-    const loadPdfDoc = async () => {
-      if (!window.pdfjsLib) {
-        console.warn("PDF.js library not yet loaded in window.");
-        return;
-      }
-
-      try {
-        const pdfUrl = `${API_BASE}/documents/${viewerDoc.id}/file`;
-        const loadingTask = window.pdfjsLib.getDocument(pdfUrl);
-        const pdf = await loadingTask.promise;
-        if (!isCancelled) {
-          setViewerPdf(pdf);
-          setTotalPages(pdf.numPages);
-          renderPdfPage(pdf, currentPage);
-        }
-      } catch (e) {
-        console.error("Failed to load PDF:", e);
-      }
-    };
-
-    loadPdfDoc();
-    return () => {
-      isCancelled = true;
-    };
-  }, [viewerDoc, viewerOpen, renderPdfPage, currentPage]);
-
-  // Re-render on page or zoom change
-  useEffect(() => {
-    if (viewerPdf) {
-      renderPdfPage(viewerPdf, currentPage);
-    }
-  }, [viewerPdf, currentPage, zoomScale, renderPdfPage]);
 
   return (
-    <div className="azure-app" data-theme={theme}>
-      {/* ================= 1. TOP NAVIGATION BAR ================= */}
-      <header className="azure-nav-bar">
-        <div className="nav-left">
-          {/* ChatGPT Style 3-Lines Hamburger Menu Button */}
-          <div style={{ position: "relative" }} ref={menuRef}>
-            <button
-              className={`hamburger-menu-btn ${menuOpen ? "active" : ""}`}
-              onClick={() => setMenuOpen(!menuOpen)}
-              title="Settings & Menu"
-              aria-label="Settings and Menu"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+    <div className="chatgpt-app-container" data-theme={theme}>
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        style={{ display: "none" }}
+        onChange={handleFileUpload}
+        accept=".pdf,.docx,.pptx,.xlsx,.txt,.md,.csv,.html"
+      />
+
+      {/* Main Layout */}
+      <div className="chatgpt-layout-wrapper">
+        {/* Left Navigation Sidebar matching Image 2 */}
+        <Sidebar
+          isOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          onSelectNavView={(v) => {
+            if (v === "tools") setToolsOpen(true);
+            if (v === "library") fileInputRef.current?.click();
+            if (v === "projects") setProjectsOpen(true);
+          }}
+          conversations={conversations}
+          activeConvId={activeConvId}
+          onSelectConversation={selectConversation}
+          onNewConversation={handleNewConversation}
+          onDeleteConversation={handleDeleteConversation}
+          onOpenHistory={() => setHistoryOpen(true)}
+          onOpenProjects={() => setProjectsOpen(true)}
+          documents={documents}
+          activeDoc={activeDoc}
+          onSelectDocument={(doc) => {
+            if (activeDoc?.id !== doc.id) {
+              setActiveHighlights([]);
+              setFocusedCitation(null);
+            }
+            setActiveDoc(doc);
+            setCurrentPage(1);
+            setViewMode("split");
+          }}
+          onTriggerUpload={() => fileInputRef.current?.click()}
+          onDeleteDocument={handleDeleteDocument}
+          onRenameDocument={handleRenameDocument}
+          onOpenSettings={handleOpenSettings}
+          onOpenDeveloperSettings={handleOpenDeveloperSettings}
+          onOpenTools={() => setToolsOpen(true)}
+          onClearChat={handleClearChat}
+          onOpenHelp={() => setHelpOpen(true)}
+          currentUser={currentUser}
+          onOpenAuth={() => setAuthModalOpen(true)}
+          onLogout={handleLogout}
+          onToggleRole={handleToggleRole}
+          onRequestAdminMode={handleRequestAdminMode}
+        />
+
+        {/* Central & Right Workspaces (Split View) */}
+        <div className={`chatgpt-main-view ${viewMode === "split" && activeDoc ? "split-active" : "chat-only"}`}>
+          {/* Top Navbar matching Image 2 */}
+          <Navbar
+            activeDoc={activeDoc}
+            onDeselectDoc={() => {
+              setActiveDoc(null);
+              setViewMode("chat");
+              setActiveHighlights([]);
+              setFocusedCitation(null);
+            }}
+            viewMode={viewMode}
+            onToggleSplitView={() => {
+              if (viewMode === "split") {
+                setViewMode("chat");
+              } else if (activeDoc) {
+                setViewMode("split");
+              } else if (documents.length > 0) {
+                setActiveDoc(documents[0]);
+                setViewMode("split");
+              }
+            }}
+            currentUser={currentUser}
+            onRequestAdminMode={handleRequestAdminMode}
+            onSwitchToUserMode={handleSwitchToUserMode}
+          />
+
+          {/* Split Panes Container */}
+          <div className={`chatgpt-split-workspace-body ${isResizingSplit ? "resizing" : ""}`}>
+            {/* Left Pane: Chat Workspace (visible in Chat Only & Split View modes) */}
+            {viewMode !== "document" && (
+              <div
+                className="chatgpt-chat-column"
+                style={{
+                  width: (viewMode === "split" && activeDoc) ? `${chatSplitPercent}%` : "100%",
+                  flex: (viewMode === "split" && activeDoc) ? "none" : 1
+                }}
               >
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-            </button>
-
-            {menuOpen && (
-              <div className="chatgpt-menu-popover">
-                <div className="menu-section-label">Chat</div>
-                <button
-                  className="menu-item-row"
-                  onClick={() => {
-                    handleNewChat();
-                    setMenuOpen(false);
-                  }}
-                >
-                  <div className="menu-item-left">
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                    <span style={{ fontWeight: 600 }}>New chat</span>
-                  </div>
-                  <span className="menu-badge-new">+ New</span>
-                </button>
-
-                <div className="menu-divider" />
-                <div className="menu-section-label">Theme Mode</div>
-                <div className="menu-item-row" style={{ cursor: "default" }}>
-                  <div className="menu-item-left">
-                    <span>{theme === "dark" ? "🌙 Dark" : "☀️ Light"}</span>
-                  </div>
-                  <div className="menu-theme-switcher">
-                    <button
-                      className={`menu-theme-pill ${theme === "dark" ? "active" : ""}`}
-                      onClick={() => {
-                        setTheme("dark");
-                        localStorage.setItem("docuchat_theme", "dark");
-                      }}
-                    >
-                      Dark
-                    </button>
-                    <button
-                      className={`menu-theme-pill ${theme === "light" ? "active" : ""}`}
-                      onClick={() => {
-                        setTheme("light");
-                        localStorage.setItem("docuchat_theme", "light");
-                      }}
-                    >
-                      Light
-                    </button>
-                  </div>
-                </div>
-
-                <div className="menu-divider" />
-                <div className="menu-section-label">Settings & Tools</div>
-
-                <button
-                  className="menu-item-row"
-                  onClick={() => {
-                    setDevSettingsOpen(true);
-                    setSettingsTab("rag");
-                    setMenuOpen(false);
-                  }}
-                >
-                  <div className="menu-item-left">
-                    <span>⚙️ Model & RAG Settings</span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>❯</span>
-                </button>
-
-                <button
-                  className="menu-item-row"
-                  onClick={() => {
-                    setDevSettingsOpen(true);
-                    setSettingsTab("docs");
-                    setMenuOpen(false);
-                  }}
-                >
-                  <div className="menu-item-left">
-                    <span>📄 Documents & Uploads ({documents.length})</span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>❯</span>
-                </button>
-
-                <button
-                  className="menu-item-row"
-                  onClick={() => {
-                    setDevSettingsOpen(true);
-                    setSettingsTab("history");
-                    setMenuOpen(false);
-                  }}
-                >
-                  <div className="menu-item-left">
-                    <span>💬 Chat History ({conversations.length})</span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>❯</span>
-                </button>
-
-                <button
-                  className="menu-item-row"
-                  onClick={() => {
-                    handleClearChat();
-                    setMenuOpen(false);
-                  }}
-                >
-                  <div className="menu-item-left">
-                    <span>🗑️ Clear Active Chat</span>
-                  </div>
-                </button>
-
-                <div className="menu-divider" />
-                <div className="menu-section-label">Account</div>
-
-                {currentUser ? (
-                  <div className="menu-item-row" style={{ cursor: "default" }}>
-                    <div className="menu-item-left">
-                      <div
-                        className="auth-user-avatar"
-                        style={{ width: 20, height: 20, fontSize: 10 }}
-                      >
-                        {currentUser.username[0].toUpperCase()}
-                      </div>
-                      <span style={{ fontWeight: 600 }}>{currentUser.username}</span>
-                    </div>
-                    <button
-                      className="auth-btn-ghost"
-                      style={{ padding: "2px 8px", fontSize: "11px" }}
-                      onClick={() => {
-                        handleLogout();
-                        setMenuOpen(false);
-                      }}
-                    >
-                      Sign Out
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="menu-item-row"
-                    onClick={() => {
-                      setAuthModalOpen(true);
-                      setMenuOpen(false);
-                    }}
-                  >
-                    <div className="menu-item-left">
-                      <span>👤 Sign In / Register</span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--accent-purple)",
-                        fontWeight: 600,
-                      }}
-                    >
-                      Sign In
-                    </span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Top Nav New Chat Button */}
-          <button
-            className="nav-new-chat-btn"
-            onClick={handleNewChat}
-            title="Start a new chat"
-            aria-label="New chat"
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span className="nav-new-chat-text">New chat</span>
-          </button>
-
-          <div className="brand-title" onClick={() => setNavTab("chat")}>
-            <div className="brand-dot" />
-            <span>DocuChat-AI</span>
-          </div>
-        </div>
-
-        <nav className="nav-center-tabs">
-          <button
-            className={`nav-tab-btn ${navTab === "chat" ? "active" : ""}`}
-            onClick={() => setNavTab("chat")}
-          >
-            Chat
-          </button>
-          <button
-            className={`nav-tab-btn ${navTab === "ask" ? "active" : ""}`}
-            onClick={() => setNavTab("ask")}
-          >
-            Ask a question
-          </button>
-          <a
-            href="https://github.com/Azure-Samples/azure-search-openai-demo"
-            target="_blank"
-            rel="noreferrer"
-            className="nav-github-link"
-            title="GitHub Repository"
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
-              />
-            </svg>
-          </a>
-        </nav>
-
-        <div className="nav-right">
-          <span className="azure-service-tag">Azure OpenAI + AI Search</span>
-
-          {/* Quick theme toggle */}
-          <button
-            className="theme-toggle-btn"
-            onClick={toggleTheme}
-            title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
-          >
-            {theme === "dark" ? "☀️" : "🌙"}
-          </button>
-
-          {/* User auth status */}
-          {currentUser ? (
-            <div className="auth-user-pill">
-              <div className="auth-user-avatar">
-                {currentUser.username[0].toUpperCase()}
-              </div>
-              <span>{currentUser.username}</span>
-              <button
-                className="auth-btn-ghost"
-                onClick={handleLogout}
-                title="Sign out"
-              >
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <button
-              className="auth-btn-primary"
-              onClick={() => {
-                setAuthError("");
-                setAuthModalOpen(true);
-              }}
-            >
-              Sign In
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* ================= 2. SUB-HEADER TOOLBAR ================= */}
-      <div className="azure-sub-toolbar">
-        <button
-          className="toolbar-action-btn toolbar-new-chat-btn"
-          onClick={handleNewChat}
-          title="Start a new chat"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          <span>New chat</span>
-        </button>
-
-        <button
-          className="toolbar-action-btn"
-          onClick={handleClearChat}
-          title="Clear current view"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-          </svg>
-          <span>Clear chat</span>
-        </button>
-
-        <button
-          className="toolbar-action-btn"
-          onClick={() => setDevSettingsOpen(true)}
-          title="Developer settings"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-          <span>Developer settings</span>
-        </button>
-      </div>
-
-      {/* ================= 3. MAIN WORKSPACE ================= */}
-      <div className="azure-workspace">
-        <main className="azure-main-panel">
-          {navTab === "chat" ? (
-            /* Mode 1: Multi-Turn Grounded Chat */
-            messages.length === 0 ? (
-              /* Center Hero Empty State (Exact match to reference image) */
-              <div className="hero-scroll-area">
-                <div className="hero-container">
-                  <div className="sparkle-icon-wrap">
-                    <svg
-                      width="66"
-                      height="66"
-                      viewBox="0 0 66 66"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      {/* Large star rotated */}
-                      <path
-                        d="M28 6 C28 18 20 26 8 26 C20 26 28 34 28 46 C28 34 36 26 48 26 C36 26 28 18 28 6 Z"
-                        fill="url(#sparkleGradient)"
-                        transform="rotate(16 28 26)"
-                      />
-                      {/* Small star tilted */}
-                      <path
-                        d="M50 36 C50 42 45 46 39 46 C45 46 50 50 50 56 C50 50 55 46 61 46 C55 46 50 42 50 36 Z"
-                        fill="url(#sparkleGradient)"
-                        transform="rotate(-12 50 46)"
-                      />
-                      <defs>
-                        <linearGradient
-                          id="sparkleGradient"
-                          x1="0"
-                          y1="0"
-                          x2="66"
-                          y2="66"
-                          gradientUnits="userSpaceOnUse"
-                        >
-                          <stop offset="0%" stopColor="#8b5cf6" />
-                          <stop offset="100%" stopColor="#a78bfa" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                  </div>
-
-                  <h1 className="hero-title">Chat with your data</h1>
-                  <p className="hero-subtitle">Ask anything or try an example</p>
-
-                  <div className="starter-cards-row">
-                    <div
-                      className="starter-card"
-                      onClick={() =>
-                        handleSendMessage(
-                          "What is included in my Northwind Health Plus plan that is not in standard?"
-                        )
-                      }
-                    >
-                      <span>
-                        What is included in my Northwind Health Plus plan that is not in standard?
-                      </span>
-                    </div>
-
-                    <div
-                      className="starter-card"
-                      onClick={() =>
-                        handleSendMessage("What happens in a performance review?")
-                      }
-                    >
-                      <span>What happens in a performance review?</span>
-                    </div>
-
-                    <div
-                      className="starter-card"
-                      onClick={() =>
-                        handleSendMessage("What does a Product Manager do?")
-                      }
-                    >
-                      <span>What does a Product Manager do?</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* Chat Messages Stream */
-              <div className="messages-scroll-area">
-                {messages.map((msg, idx) => (
-                  <div
-                    key={msg.id || idx}
-                    className={`chat-message-row ${msg.role === "user" ? "user" : "assistant"}`}
-                  >
-                    {msg.role === "user" ? (
-                      <div className="user-bubble">{msg.content}</div>
-                    ) : (
-                      <div className="assistant-bubble">
-                        <div className="msg-header-row">
-                          <span
-                            className={`router-badge ${msg.router_badge?.includes("document") ? "document" : "general"
-                              }`}
-                          >
-                            {msg.router_badge?.includes("document")
-                              ? "📄 From document"
-                              : "✨ General answer"}
-                          </span>
-                        </div>
-
-                        {renderMarkdownWithCitations(
-                          msg.content,
-                          msg.citations,
-                          (num, c) => openCitationInViewer(num, c, msg.content)
-                        )}
-
-                        {msg.content && (
-                          <div className="msg-actions-row">
-                            <button
-                              className="msg-action-btn"
-                              onClick={() => navigator.clipboard.writeText(msg.content)}
-                              title="Copy response"
-                            >
-                              📋 Copy
-                            </button>
-                            <button
-                              className="msg-action-btn"
-                              onClick={() =>
-                                handleSendMessage(messages[idx - 1]?.content)
-                              }
-                              title="Regenerate"
-                            >
-                              🔄 Regenerate
-                            </button>
-                            <button className="msg-action-btn" title="Helpful">
-                              👍
-                            </button>
-                            <button className="msg-action-btn" title="Not helpful">
-                              👎
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
-            )
-          ) : (
-            /* Mode 2: "Ask a question" Single-Turn View */
-            <div className="ask-question-view">
-              <div className="ask-box-wrap">
-                <h2 style={{ fontSize: "24px", fontWeight: 700, marginBottom: "8px" }}>
-                  Ask a direct question
-                </h2>
-                <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "16px" }}>
-                  Submit a query to directly retrieve answers with grounding citations and source passages.
-                </p>
-
-                <div
-                  className="input-floating-card"
-                  style={{ boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}
-                >
-                  <textarea
-                    className="input-main-textarea"
-                    placeholder="Type your question here..."
-                    rows={3}
-                    value={askQuery}
-                    onChange={(e) => setAskQuery(e.target.value)}
-                  />
-                  <div className="input-bottom-row">
-                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                      Scope: {selectedDocScope === "all" ? "All Documents" : "Active Document"}
-                    </span>
-                    <button
-                      className="auth-btn-primary"
-                      disabled={isAsking || !askQuery.trim()}
-                      onClick={handleAskQuestionSubmit}
-                      style={{ padding: "8px 18px", borderRadius: "6px" }}
-                    >
-                      {isAsking ? "Generating answer..." : "Ask question ➔"}
-                    </button>
-                  </div>
-                </div>
-
-                {askAnswer && (
-                  <div className="ask-card-answer">
-                    <h3 style={{ fontSize: "16px", fontWeight: 700, marginBottom: "12px" }}>
-                      Generated Answer
-                    </h3>
-                    {renderMarkdownWithCitations(askAnswer, askCitations, (num, c) =>
-                      openCitationInViewer(num, c, askAnswer)
-                    )}
-
-                    {askCitations.length > 0 && (
-                      <div style={{ marginTop: "24px" }}>
-                        <h4 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-secondary)" }}>
-                          Supporting Source Citations
-                        </h4>
-                        <div className="citations-cards-grid">
-                          {askCitations.map((c, i) => (
-                            <div
-                              key={i}
-                              className="citation-source-card"
-                              onClick={() => openCitationInViewer(c.source_index || i + 1, c)}
-                            >
-                              <div style={{ fontWeight: 650, fontSize: "13px", marginBottom: "4px" }}>
-                                [{c.source_index || i + 1}] Page {c.page}
-                              </div>
-                              <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                                {c.snippet?.slice(0, 140)}...
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ================= FLOATING CHAT INPUT BAR (Chat Mode) ================= */}
-          {navTab === "chat" && (
-            <div className="chat-input-section">
-              <div className="input-floating-card">
-                {uploading && (
-                  <div style={{ fontSize: "12px", color: "var(--accent-purple)", marginBottom: "4px" }}>
-                    ⏳ {uploadStatus}
-                  </div>
-                )}
-
-                <div className="input-chips-bar">
-                  {selectedDocScope === "none" ? (
-                    <div className="scope-pill chatgpt-mode">
-                      🌐 Real-time Web Mode
-                    </div>
-                  ) : selectedDocScope !== "all" ? (
-                    <div className="scope-pill active-doc">
-                      📄 {documents.find((d) => d.id === selectedDocScope)?.filename}
-                      <span
-                        style={{ cursor: "pointer", marginLeft: "4px", fontWeight: 700 }}
-                        onClick={() => setSelectedDocScope("all")}
-                      >
-                        ✕
-                      </span>
-                    </div>
-                  ) : (
-                    documents.length > 0 && (
-                      <div className="scope-pill">
-                        📚 All Indexed Documents ({documents.length})
-                      </div>
-                    )
-                  )}
-                </div>
-
-                <textarea
-                  className="input-main-textarea"
-                  placeholder="Type a new question (e.g. does my plan cover annual eye exams?)"
-                  value={inputMessage}
-                  rows={2}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
+                <ChatArea
+                  messages={messages}
+                  isGenerating={isGenerating}
+                  onCitationClick={handleCitationClick}
+                  onQuickPromptClick={(prompt) => setInputMessage(prompt)}
+                  activeDoc={activeDoc}
                 />
 
-                <div className="input-bottom-row">
-                  <div className="input-tools-left">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      style={{ display: "none" }}
-                      accept=".pdf,.docx,.pptx,.xlsx,.txt,.html,.md,.png,.jpg,.jpeg"
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
-                      }}
-                    />
-                    <button
-                      className="tool-icon-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                      title="Attach Document (PDF, DOCX, XLSX, TXT)"
-                    >
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                      </svg>
-                    </button>
+                {/* Chat Composer Bar with Popover */}
+                <div className="chatgpt-composer-anchor">
+                  <ToolsPopover
+                    isOpen={toolsOpen}
+                    onClose={() => setToolsOpen(false)}
+                    onSelectTool={handleSelectTool}
+                  />
 
-                    <select
-                      className="scope-select-dropdown"
-                      value={selectedDocScope}
-                      onChange={(e) => setSelectedDocScope(e.target.value)}
-                    >
-                      {documents.length > 0 && (
-                        <option value="all">All Documents ({documents.length})</option>
-                      )}
-                      {documents.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          📄 {d.filename}
-                        </option>
-                      ))}
-                      <option value="none">🌐 ChatGPT Mode</option>
-                    </select>
-                  </div>
-
-                  {isGenerating ? (
-                    <button className="stop-gen-btn" onClick={handleStopGenerating}>
-                      ⏹ Stop
-                    </button>
-                  ) : (
-                    <button
-                      className="send-action-btn"
-                      disabled={!inputMessage.trim()}
-                      onClick={() => handleSendMessage()}
-                      title="Send query"
-                    >
-                      {/* Purple send arrow matching screenshot */}
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="var(--accent-purple)"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path d="M3.4 20.4l17.45-7.48c.81-.35.81-1.49 0-1.84L3.4 3.6c-.66-.29-1.39.2-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.89c-.5.06-.87.49-.87 1l.01 4.6c0 .72.73 1.2 1.39.91z" />
-                      </svg>
-                    </button>
-                  )}
+                  <ChatInput
+                    inputMessage={inputMessage}
+                    setInputMessage={setInputMessage}
+                    onSendMessage={handleSendMessage}
+                    isGenerating={isGenerating}
+                    onStopGenerating={handleStopGenerating}
+                    onOpenFileUpload={() => fileInputRef.current?.click()}
+                    onToggleTools={() => setToolsOpen((prev) => !prev)}
+                    toolsOpen={toolsOpen}
+                    disabled={isGenerating}
+                    webMode={webMode}
+                    setWebMode={setWebMode}
+                  />
                 </div>
-              </div>
-            </div>
-          )}
-        </main>
-
-        {/* ================= 4. RIGHT PDF VIEWER ================= */}
-        <section className={`pdf-viewer-panel ${viewerOpen ? "" : "collapsed"}`}>
-          <div className="viewer-header-bar">
-            <span
-              style={{
-                fontSize: "13px",
-                fontWeight: 600,
-                maxWidth: "200px",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                color: "var(--text-main)",
-              }}
-            >
-              {viewerDoc ? viewerDoc.filename : "No Document Selected"}
-            </span>
-
-            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage <= 1}
-              >
-                ◀
-              </button>
-              <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                {currentPage} / {totalPages}
-              </span>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage >= totalPages}
-              >
-                ▶
-              </button>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setZoomScale((z) => Math.max(0.6, z - 0.15))}
-              >
-                -
-              </button>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setZoomScale(1.0)}
-              >
-                100%
-              </button>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setZoomScale((z) => Math.min(2.0, z + 0.15))}
-              >
-                +
-              </button>
-              <button
-                className="tool-icon-btn"
-                onClick={() => setViewerOpen(false)}
-                title="Close PDF view"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-
-          <div
-            style={{
-              flex: 1,
-              overflow: "auto",
-              padding: "16px",
-              display: "flex",
-              justifyContent: "center",
-            }}
-          >
-            {viewerDoc ? (
-              <div className="viewer-page-container">
-                <canvas ref={canvasRef} />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {activeHighlights
-                    .filter((b) => b.page === currentPage)
-                    .map((box, bIdx) => {
-                      const canvas = canvasRef.current;
-                      const cWidth = canvas ? canvas.width : 600;
-                      const cHeight = canvas ? canvas.height : 800;
-                      const pWidth = box.page_width || 612;
-                      const pHeight = box.page_height || 792;
-
-                      const scaleX = cWidth / pWidth;
-                      const scaleY = cHeight / pHeight;
-
-                      const top =
-                        box.coord_origin === "BOTTOMLEFT"
-                          ? (pHeight - box.y1) * scaleY
-                          : box.y0 * scaleY;
-                      const height = Math.abs(box.y1 - box.y0) * scaleY;
-                      const left = box.x0 * scaleX;
-                      const width = Math.abs(box.x1 - box.x0) * scaleX;
-
-                      return (
-                        <div
-                          key={bIdx}
-                          className="highlight-rect focused"
-                          style={{
-                            top: `${top}px`,
-                            left: `${left}px`,
-                            width: `${Math.max(15, width)}px`,
-                            height: `${Math.max(12, height)}px`,
-                          }}
-                          title={`Citation [${focusedCitationIndex || ""}]`}
-                        />
-                      );
-                    })}
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  margin: "auto",
-                  textAlign: "center",
-                  color: "var(--text-secondary)",
-                  fontSize: "13px",
-                }}
-              >
-                Select a document or click a citation [n] in chat to view page & highlights.
               </div>
             )}
+
+            {/* Draggable Divider Handle between Chat and Document panels */}
+            {viewMode === "split" && activeDoc && (
+              <div
+                className="chatgpt-split-resizer"
+                onMouseDown={handleResizerMouseDown}
+                title="Drag to resize chat and document panels"
+              >
+                <div className="resizer-handle-pill" />
+              </div>
+            )}
+
+            {/* Right Pane: Document Viewer (visible in Split View & Document Only / Maximized modes) */}
+            {viewMode !== "chat" && activeDoc && (
+              <SideDocumentViewer
+                document={activeDoc}
+                currentPage={currentPage}
+                setCurrentPage={setCurrentPage}
+                activeHighlights={activeHighlights}
+                focusedCitation={focusedCitation}
+                viewMode={viewMode}
+                onToggleSplitView={() => setViewMode((m) => (m === "split" ? "chat" : "split"))}
+                onToggleMaximize={() => setViewMode((m) => (m === "document" ? "split" : "document"))}
+                onCloseViewer={() => setViewMode("chat")}
+              />
+            )}
           </div>
-        </section>
+        </div>
       </div>
 
-      {/* ================= 5. DEVELOPER SETTINGS DRAWER ================= */}
-      <aside className={`dev-settings-drawer ${devSettingsOpen ? "open" : ""}`}>
-        <div className="drawer-header">
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <button
-              className="drawer-back-btn"
-              onClick={() => setDevSettingsOpen(false)}
-              title="Back"
-              aria-label="Back"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="19" y1="12" x2="5" y2="12" />
-                <polyline points="12 19 5 12 12 5" />
-              </svg>
-              <span>Back</span>
-            </button>
-            <h3 className="drawer-title">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-              Settings
-            </h3>
-          </div>
-          <button
-            className="drawer-close-btn"
-            onClick={() => setDevSettingsOpen(false)}
-            title="Close"
-          >
-            ✕
-          </button>
-        </div>
+      {/* Tool Execution Modal */}
+      <ToolExecutionModal
+        isOpen={activeToolModal.isOpen}
+        toolId={activeToolModal.toolId}
+        onClose={() => setActiveToolModal({ isOpen: false, toolId: null })}
+        activeDoc={activeDoc}
+        onInsertIntoChat={handleInsertToolResult}
+        onExecutePrompt={(promptText) => {
+          handleSendMessage(promptText);
+        }}
+      />
 
-        <div className="auth-modal-tabs">
-          <button
-            className={`auth-tab-btn ${settingsTab === "rag" ? "active" : ""}`}
-            onClick={() => setSettingsTab("rag")}
-          >
-            RAG Tuning
-          </button>
-          <button
-            className={`auth-tab-btn ${settingsTab === "docs" ? "active" : ""}`}
-            onClick={() => setSettingsTab("docs")}
-          >
-            Documents ({documents.length})
-          </button>
-          <button
-            className={`auth-tab-btn ${settingsTab === "history" ? "active" : ""}`}
-            onClick={() => setSettingsTab("history")}
-          >
-            Chats ({conversations.length})
-          </button>
-        </div>
+      {/* Full ChatGPT-style Settings Modal matching Image 2 */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        initialTab={settingsTab}
+        theme={theme}
+        setTheme={setTheme}
+        topK={topK}
+        setTopK={setTopK}
+        scoreThreshold={scoreThreshold}
+        setScoreThreshold={setScoreThreshold}
+        fusionMethod={fusionMethod}
+        setFusionMethod={setFusionMethod}
+        fusionAlpha={fusionAlpha}
+        setFusionAlpha={setFusionAlpha}
+        routerMode={routerMode}
+        setRouterMode={setRouterMode}
+        temperature={temperature}
+        setTemperature={setTemperature}
+        llmModel={llmModel}
+        setLlmModel={setLlmModel}
+        embeddingModel={embeddingModel}
+        currentUser={currentUser}
+        setCurrentUser={setCurrentUser}
+        onClearAllConversations={handleClearAllConversations}
+        onLogout={handleLogout}
+        onToggleRole={handleToggleRole}
+        webMode={webMode}
+        setWebMode={setWebMode}
+      />
 
-        <div className="drawer-body">
-          {settingsTab === "rag" && (
-            <>
-              <div className="drawer-section">
-                <div className="drawer-section-title">Retrieval Parameters</div>
+      {/* All Past Conversation History Modal */}
+      <HistoryModal
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        conversations={conversations}
+        activeConvId={activeConvId}
+        onSelectConversation={selectConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onNewConversation={handleNewConversation}
+        onClearAllConversations={handleClearAllConversations}
+      />
 
-                <div className="setting-control-row">
-                  <div className="setting-label-wrap">
-                    <span>Retrieve Top-K Chunks</span>
-                    <strong>{topK}</strong>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    className="setting-range-input"
-                    value={topK}
-                    onChange={(e) => setTopK(parseInt(e.target.value, 10))}
-                  />
-                </div>
+      {/* Workspace Projects Modal */}
+      <ProjectsModal
+        isOpen={projectsOpen}
+        onClose={() => setProjectsOpen(false)}
+        projects={projects}
+        setProjects={setProjects}
+        activeProjectId={activeProjectId}
+        setActiveProjectId={setActiveProjectId}
+        documents={documents}
+      />
 
-                <div className="setting-control-row">
-                  <div className="setting-label-wrap">
-                    <span>Score Threshold</span>
-                    <strong>{scoreThreshold}</strong>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.0"
-                    max="0.8"
-                    step="0.05"
-                    className="setting-range-input"
-                    value={scoreThreshold}
-                    onChange={(e) => setScoreThreshold(parseFloat(e.target.value))}
-                  />
-                </div>
+      {/* Auth Modal with polished styling and instant demo options */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onDemoLogin={handleDemoLogin}
+      />
 
-                <div className="setting-control-row">
-                  <span className="setting-label-wrap">Hybrid Fusion Method</span>
-                  <select
-                    className="setting-select-input"
-                    value={fusionMethod}
-                    onChange={(e) => setFusionMethod(e.target.value)}
-                  >
-                    <option value="rrf">Reciprocal Rank Fusion (RRF, k=60)</option>
-                    <option value="weighted">Weighted Score Fusion (Vector + BM25)</option>
-                  </select>
-                </div>
+      {/* Admin Password Authentication Modal */}
+      <AdminPasswordModal
+        isOpen={adminPwdModalOpen}
+        onClose={() => setAdminPwdModalOpen(false)}
+        onSuccess={handleAdminAuthSuccess}
+      />
 
-                {fusionMethod === "weighted" && (
-                  <div className="setting-control-row">
-                    <div className="setting-label-wrap">
-                      <span>Vector Alpha Weight</span>
-                      <strong>{fusionAlpha}</strong>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.05"
-                      className="setting-range-input"
-                      value={fusionAlpha}
-                      onChange={(e) => setFusionAlpha(parseFloat(e.target.value))}
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="drawer-section">
-                <div className="drawer-section-title">LLM & Generation</div>
-
-                <div className="setting-control-row">
-                  <span className="setting-label-wrap">Query Router Mode</span>
-                  <select
-                    className="setting-select-input"
-                    value={routerMode}
-                    onChange={(e) => setRouterMode(e.target.value)}
-                  >
-                    <option value="hybrid">Hybrid (Rules + JSON LLM Fallback)</option>
-                    <option value="rule">Rule-Based Only (Fastest)</option>
-                    <option value="llm">LLM Classification Only</option>
-                  </select>
-                </div>
-
-                <div className="setting-control-row">
-                  <div className="setting-label-wrap">
-                    <span>Temperature</span>
-                    <strong>{temperature}</strong>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.0"
-                    max="1.0"
-                    step="0.05"
-                    className="setting-range-input"
-                    value={temperature}
-                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              <div className="drawer-section">
-                <div className="drawer-section-title">PDF Provenance Viewer</div>
-                <button
-                  className="auth-btn-ghost"
-                  style={{ color: "var(--text-main)", borderColor: "var(--card-border)" }}
-                  onClick={() => setViewerOpen(!viewerOpen)}
-                >
-                  {viewerOpen ? "📖 Hide PDF Canvas" : "📖 Open PDF Canvas"}
-                </button>
-              </div>
-            </>
-          )}
-
-          {settingsTab === "docs" && (
-            <div className="drawer-section">
-              <div
-                className="doc-upload-dropzone"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <div style={{ fontSize: "24px", marginBottom: "6px" }}>📄</div>
-                <div style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-main)" }}>
-                  Click to upload documents
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                  PDF, DOCX, XLSX, TXT, MD, Images
-                </div>
-              </div>
-
-              <div className="drawer-section-title" style={{ marginTop: "12px" }}>
-                Indexed Files ({documents.length})
-              </div>
-
-              {documents.length === 0 ? (
-                <div style={{ fontSize: "13px", color: "var(--text-secondary)", textAlign: "center" }}>
-                  No documents indexed yet.
-                </div>
-              ) : (
-                documents.map((doc) => (
-                  <div key={doc.id} className="doc-list-item">
-                    <div
-                      style={{ cursor: "pointer" }}
-                      onClick={() => {
-                        setViewerDoc(doc);
-                        setViewerOpen(true);
-                        setCurrentPage(1);
-                      }}
-                    >
-                      <div className="doc-info-text" style={{ fontWeight: 600, color: "var(--text-main)" }}>
-                        📄 {doc.filename}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                        {doc.page_count} pages • {doc.chunk_count} chunks •{" "}
-                        <span style={{ color: doc.status === "ready" ? "#10b981" : "#f59e0b" }}>
-                          {doc.status}
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      className="tool-icon-btn"
-                      onClick={(e) => deleteDocument(doc.id, e)}
-                      title="Delete document"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {settingsTab === "history" && (
-            <div className="drawer-section">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                <div className="drawer-section-title" style={{ margin: 0 }}>Saved Conversations</div>
-                <button
-                  className="drawer-new-chat-btn"
-                  onClick={() => {
-                    handleNewChat();
-                    setDevSettingsOpen(false);
-                  }}
-                  title="Start a new chat"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    style={{ marginRight: "4px" }}
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  <span>New chat</span>
-                </button>
-              </div>
-              {conversations.length === 0 ? (
-                <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>No chats saved yet.</div>
-              ) : (
-                conversations.map((conv) => (
-                  <div
-                    key={conv.id}
-                    className="doc-list-item"
-                    style={{
-                      cursor: "pointer",
-                      backgroundColor: conv.id === activeConvId ? "rgba(139, 92, 246, 0.2)" : "var(--card-bg)",
-                    }}
-                    onClick={() => selectConversation(conv.id)}
-                  >
-                    <span style={{ fontSize: "13px", fontWeight: 500, maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-main)" }}>
-                      💬 {conv.title || "Untitled Chat"}
-                    </span>
-                    <button
-                      className="tool-icon-btn"
-                      onClick={(e) => deleteConversation(conv.id, e)}
-                      title="Delete chat"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      </aside>
-
-      {/* Backdrop overlay for Left Settings Drawer */}
-      {devSettingsOpen && (
-        <div
-          className="drawer-backdrop"
-          onClick={() => setDevSettingsOpen(false)}
-          title="Click to go back"
-        />
-      )}
-
-      {/* ================= 6. AUTHENTICATION MODAL ================= */}
-      {authModalOpen && (
-        <div className="auth-modal-overlay" onClick={() => setAuthModalOpen(false)}>
-          <div className="auth-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="auth-modal-header">
-              <h2 className="auth-modal-title">DocuChat-AI</h2>
-              <p className="auth-modal-subtitle">
-                Sign in or register to access grounded enterprise search and documents.
-              </p>
-              <button
-                className="auth-modal-close"
-                onClick={() => setAuthModalOpen(false)}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="auth-modal-tabs">
-              <button
-                className={`auth-tab-btn ${authTab === "login" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthTab("login");
-                  setAuthError("");
-                }}
-              >
-                Sign In
-              </button>
-              <button
-                className={`auth-tab-btn ${authTab === "register" ? "active" : ""}`}
-                onClick={() => {
-                  setAuthTab("register");
-                  setAuthError("");
-                }}
-              >
-                Create Account
-              </button>
-            </div>
-
-            <form className="auth-form-body" onSubmit={handleAuthSubmit}>
-              {authError && <div className="auth-error-banner">{authError}</div>}
-
-              <div className="form-field-group">
-                <label className="form-field-label">Username</label>
-                <div className="form-input-wrap">
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="Enter your username (e.g. admin)"
-                    value={authUsername}
-                    onChange={(e) => setAuthUsername(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                </div>
-              </div>
-
-              {authTab === "register" && (
-                <div className="form-field-group">
-                  <label className="form-field-label">Email (Optional)</label>
-                  <div className="form-input-wrap">
-                    <input
-                      type="email"
-                      className="form-input"
-                      placeholder="user@enterprise.ai"
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="form-field-group">
-                <label className="form-field-label">Password</label>
-                <div className="form-input-wrap">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    className="form-input"
-                    placeholder="Enter your password"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle-btn"
-                    onClick={() => setShowPassword(!showPassword)}
-                    title={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? "👁️" : "👁️‍🗨️"}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="auth-submit-btn"
-                disabled={authLoading}
-              >
-                {authLoading
-                  ? "Verifying credentials..."
-                  : authTab === "login"
-                    ? "Sign In"
-                    : "Create Account"}
-              </button>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  margin: "4px 0",
-                }}
-              >
-                <div style={{ flex: 1, height: "1px", background: "var(--card-border)" }} />
-                <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>OR QUICK ACCESS</span>
-                <div style={{ flex: 1, height: "1px", background: "var(--card-border)" }} />
-              </div>
-
-              <button
-                type="button"
-                className="auth-demo-shortcut"
-                onClick={handleDemoLogin}
-              >
-                ⚡ 1-Click Demo Login (admin / admin123)
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Help & Guide Modal */}
+      <HelpModal
+        isOpen={helpOpen}
+        onClose={() => setHelpOpen(false)}
+      />
     </div>
   );
 }

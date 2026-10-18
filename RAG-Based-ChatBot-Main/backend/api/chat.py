@@ -10,7 +10,9 @@ from sqlalchemy.orm import selectinload
 
 from backend.config import settings
 from backend.db.session import get_db, AsyncSessionLocal
-from backend.db.models import ConversationModel, MessageModel, DocumentModel
+from backend.db.models import ConversationModel, MessageModel, DocumentModel, UserModel
+from backend.api.auth import get_current_user_optional
+from sqlalchemy import select, or_
 from backend.llm.router import query_router
 from backend.llm.rewriter import query_rewriter
 from backend.retrieval.pipeline import retrieval_pipeline
@@ -30,14 +32,23 @@ class ChatRequest(BaseModel):
     router_mode: Optional[str] = settings.ROUTER_MODE
 
 @router.post("")
-async def chat_endpoint(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat_endpoint(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[UserModel] = Depends(get_current_user_optional)
+):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    # 1. Get or create conversation
+    user_id = current_user.id if current_user else None
+
+    # 1. Get or create conversation with tenant ownership
     conv_id = req.conversation_id
     if not conv_id:
-        new_conv = ConversationModel(title=req.message[:35] + ("..." if len(req.message) > 35 else ""))
+        new_conv = ConversationModel(
+            title=req.message[:35] + ("..." if len(req.message) > 35 else ""),
+            user_id=user_id
+        )
         db.add(new_conv)
         await db.commit()
         await db.refresh(new_conv)
@@ -46,9 +57,15 @@ async def chat_endpoint(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(ConversationModel).where(ConversationModel.id == conv_id))
         conv = result.scalar_one_or_none()
         if not conv:
-            conv = ConversationModel(id=conv_id, title=req.message[:35] + ("..." if len(req.message) > 35 else ""))
+            conv = ConversationModel(
+                id=conv_id,
+                title=req.message[:35] + ("..." if len(req.message) > 35 else ""),
+                user_id=user_id
+            )
             db.add(conv)
             await db.commit()
+        elif current_user and current_user.role != "admin" and conv.user_id and conv.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied: You do not own this conversation.")
 
     # 2. Save user message to database
     user_msg = MessageModel(
@@ -71,9 +88,53 @@ async def chat_endpoint(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     history_dicts = [{"role": m.role, "content": m.content} for m in all_msgs[:-1][-6:]]
 
     # 4. Check if ready documents exist
-    doc_res = await db.execute(select(DocumentModel).where(DocumentModel.status == "ready"))
-    ready_docs = doc_res.scalars().all()
-    has_documents = len(ready_docs) > 0
+    effective_doc_ids = None
+    if req.document_ids:
+        doc_stmt = select(DocumentModel).where(
+            DocumentModel.id.in_(req.document_ids),
+            DocumentModel.status == "ready"
+        )
+        doc_res = await db.execute(doc_stmt)
+        # If not ready, check if currently processing and wait briefly
+        if not ready_docs:
+            proc_stmt = select(DocumentModel).where(
+                DocumentModel.id.in_(req.doc_ids),
+                DocumentModel.status.in_(["queued", "converting", "parsing", "chunking", "embedding", "indexing", "processing"])
+            )
+            proc_res = await db.execute(proc_stmt)
+            if proc_res.scalars().all():
+                for _ in range(20):
+                    await asyncio.sleep(0.5)
+                    check_res = await db.execute(doc_stmt)
+                    ready_docs = check_res.scalars().all()
+                    if ready_docs:
+                        break
+
+        if not ready_docs:
+            fb_stmt = select(DocumentModel).where(DocumentModel.status == "ready")
+            fb_res = await db.execute(fb_stmt)
+            ready_docs = fb_res.scalars().all()
+
+        effective_doc_ids = [d.id for d in ready_docs]
+        has_documents = len(effective_doc_ids) > 0
+    else:
+        doc_stmt = select(DocumentModel).where(DocumentModel.status == "ready")
+        if current_user and current_user.role != "admin":
+            user_ids = [current_user.id]
+            if current_user.email:
+                email_res = await db.execute(select(UserModel.id).where(UserModel.email == current_user.email))
+                user_ids = list(email_res.scalars().all())
+            doc_stmt = doc_stmt.where(
+                or_(DocumentModel.user_id.in_(user_ids), DocumentModel.user_id.is_(None))
+            )
+        doc_res = await db.execute(doc_stmt)
+        ready_docs = doc_res.scalars().all()
+        if not ready_docs:
+            all_res = await db.execute(select(DocumentModel).where(DocumentModel.status == "ready"))
+            ready_docs = all_res.scalars().all()
+        authorized_doc_ids = {d.id for d in ready_docs}
+        has_documents = len(ready_docs) > 0
+        effective_doc_ids = list(authorized_doc_ids) if has_documents else None
 
     # 5. Route Query
     router_instance = query_router
@@ -84,7 +145,7 @@ async def chat_endpoint(req: ChatRequest, db: AsyncSession = Depends(get_db)):
     route, badge = await router_instance.route_query(
         question=req.message,
         has_documents=has_documents,
-        active_doc_ids=req.document_ids
+        active_doc_ids=effective_doc_ids
     )
 
     # 6. Retrieve relevant chunks if route == "document"
@@ -98,7 +159,7 @@ async def chat_endpoint(req: ChatRequest, db: AsyncSession = Depends(get_db)):
         # Parallel retrieval, fusion, reranking
         retrieved_chunks = await retrieval_pipeline.retrieve(
             queries=queries,
-            doc_ids=req.document_ids,
+            doc_ids=effective_doc_ids,
             top_k=req.top_k or settings.FINAL_TOP_K,
             score_threshold=req.score_threshold if req.score_threshold is not None else settings.SCORE_THRESHOLD,
             fusion_method=req.fusion_method or settings.FUSION_METHOD,

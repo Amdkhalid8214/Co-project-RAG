@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ==========================================
   # 1. FastAPI Backend Service
@@ -27,14 +25,48 @@ services:
       - backend_bm25:/app/backend/data/bm25
       - model_cache:/root/.cache/huggingface
     depends_on:
-      - qdrant
-      - docling
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      docling:
+        condition: service_started
     restart: unless-stopped
 
   # ==========================================
-  # 2. Frontend React Service
+  # 2. Ingestion Worker Service (Background Jobs)
+  # ==========================================
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: docuchat_worker
+    command: ["python", "-m", "backend.workers.ingest_worker"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://raguser:ragpassword@postgres:5432/ragdb
+      - QDRANT_URL=http://qdrant:6333
+      - DOCLING_URL=http://docling:5001
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - LLM_BASE_URL=http://host.docker.internal:11434
+    volumes:
+      - backend_uploads:/app/backend/data/uploads
+      - backend_converted:/app/backend/data/converted
+      - backend_bm25:/app/backend/data/bm25
+      - model_cache:/root/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==========================================
+  # 3. Frontend React Service
   # ==========================================
   frontend:
     build:
@@ -48,7 +80,7 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # 3. Vector Database (Qdrant)
+  # 4. Vector Database (Qdrant)
   # ==========================================
   qdrant:
     image: qdrant/qdrant:latest
@@ -61,7 +93,7 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # 4. Docling Document Conversion Service
+  # 5. Docling Document Conversion Service
   # ==========================================
   docling:
     image: quay.io/docling-project/docling-serve:latest
@@ -71,7 +103,7 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # 5. Local LLM Service (Ollama with Qwen)
+  # 6. Local LLM Service (Ollama with Qwen)
   # ==========================================
   ollama:
     image: ollama/ollama:latest
@@ -80,20 +112,10 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # ========================================================
-    # GPU Acceleration (Uncomment below if NVIDIA GPU is present):
-    # ========================================================
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     restart: unless-stopped
 
   # ==========================================
-  # 6. Relational Database (PostgreSQL)
+  # 7. Relational Database (PostgreSQL)
   # ==========================================
   postgres:
     image: postgres:16-alpine
@@ -106,10 +128,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   # ==========================================
-  # 7. Caching & Message Broker (Redis)
+  # 8. Caching & Message Broker (Redis)
   # ==========================================
   redis:
     image: redis:7-alpine
@@ -118,6 +145,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
@@ -129,3 +161,4 @@ volumes:
   backend_converted:
   backend_bm25:
   model_cache:
+

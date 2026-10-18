@@ -15,12 +15,19 @@ class EmbeddingService:
         if self._fastembed_model is None:
             try:
                 from fastembed import TextEmbedding
-                # Normalize model name for FastEmbed (defaults to BAAI/bge-small-en-v1.5)
+                # Normalize model name for FastEmbed
                 mname = self.model_name
-                if "bge-small" in mname.lower():
+                if "nomic" in mname.lower():
+                    mname = "nomic-ai/nomic-embed-text-v1.5"
+                elif "bge-small" in mname.lower() or not mname:
                     mname = "BAAI/bge-small-en-v1.5"
-                logger.info(f"Loading FastEmbed model: {mname}")
-                self._fastembed_model = TextEmbedding(model_name=mname)
+
+                try:
+                    logger.info(f"Loading FastEmbed model: {mname}")
+                    self._fastembed_model = TextEmbedding(model_name=mname)
+                except Exception as inner_e:
+                    logger.warning(f"FastEmbed failed with {mname} ({inner_e}), falling back to BAAI/bge-small-en-v1.5")
+                    self._fastembed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
             except Exception as e:
                 logger.warning(f"Could not load FastEmbed ({e}).")
         return self._fastembed_model

@@ -44,10 +44,13 @@ logger = logging.getLogger(__name__)
 def clean_pdf_text(text: str) -> str:
     """
     Cleans PDF column line breaks, hyphenated split words, and whitespace artifacts
-    while strictly preserving true paragraphs, headers, and bulleted lists.
+    while strictly preserving true paragraphs, headers, bulleted lists, and key-value lines.
     """
     if not text:
         return ""
+
+    # Replace unicode replacement characters from custom font encodings
+    text = text.replace("\ufffd", "•")
 
     # 1. Fix hyphenated word breaks at line ends: e.g. "transfor-\n mation" -> "transformation"
     text = re.sub(r'(\b[a-zA-Z]+)-\s*\n\s*([a-zA-Z]+\b)', r'\1\2', text)
@@ -55,9 +58,7 @@ def clean_pdf_text(text: str) -> str:
     # 2. Normalize horizontal spaces/tabs
     text = re.sub(r'[ \t]+', ' ', text)
 
-    # 3. Handle line breaks:
-    # Preserve double newlines (paragraphs, headers, equations)
-    # Join single newlines if they are inside a normal sentence
+    # 3. Handle line breaks carefully to preserve structured layout in resumes, forms, tables
     lines = text.split('\n')
     cleaned_lines: List[str] = []
 
@@ -68,16 +69,19 @@ def clean_pdf_text(text: str) -> str:
             continue
 
         # Bullet point or list item
-        is_bullet = bool(re.match(r'^([•\-\*]|\d+\.|\d+\.\d+)', line_s))
+        is_bullet = bool(re.match(r'^([•\-\*\u2022\u2013\u2014]|\d+\.|\d+\.\d+)', line_s))
         # Standalone numeric section or title
         is_heading = bool(re.match(r'^\d+(\.\d+)*\s*$', line_s)) or bool(
             re.match(r'^[A-Z][a-zA-Z0-9\s]{2,40}$', line_s) and len(line_s) < 45
         )
+        # Key-value or structured field (e.g. "Percentage: 81%", "Phone: ...", "Email: ...")
+        is_field = bool(re.search(r'^[A-Za-z\s]{2,25}\s*:', line_s)) or ("|" in line_s)
 
-        if cleaned_lines and cleaned_lines[-1] != "" and not is_bullet and not is_heading:
+        if cleaned_lines and cleaned_lines[-1] != "" and not is_bullet and not is_heading and not is_field:
             prev = cleaned_lines[-1]
-            # If previous line did not end with a sentence-ending punctuation or if current line continues lowercased
-            if not prev.endswith(('.', ':', '?', '!')) or (len(line_s) > 0 and line_s[0].islower()):
+            prev_is_field = bool(re.search(r'^[A-Za-z\s]{2,25}\s*:', prev)) or ("|" in prev)
+            # Only join lines if previous line is a long narrative sentence continuation
+            if len(prev) > 60 and not prev.endswith(('.', ':', '?', '!')) and not prev_is_field:
                 cleaned_lines[-1] = prev + " " + line_s
                 continue
 
@@ -92,58 +96,22 @@ def clean_pdf_text(text: str) -> str:
         else:
             result.append(l)
 
-    return "\n\n".join([r for r in "\n".join(result).split("\n\n") if r.strip()])
+    return "\n".join(result)
 
 
-# Grounded prompt templates enforcing strict verbatim factual extraction and zero hallucinations
-GROUNDED_SYSTEM_TEMPLATE = (
-    "Today's real-world current date is {current_date}.\n\n"
-    "You are a strict, verbatim document extraction system.\n\n"
-    "CRITICAL GROUNDING RULES:\n"
-    "1. Answer ONLY by extracting the exact sentences directly present in the Document Context.\n"
-    "2. DO NOT paraphrase. DO NOT summarize. DO NOT write conversational commentary, introductory filler, or textbook explanations.\n"
-    "3. Every single sentence you output must be a direct excerpt from the text. Not a single word absent from the document is allowed in your answer.\n"
-    "4. If the requested information or term is absent or not explicitly discussed in the Document Context, reply EXACTLY:\n"
-    "   'This is not mentioned in the document.'\n"
-    "   Do NOT speculate or use pre-trained external knowledge.\n"
-    "5. Cite the source numbers [1], [2] where the text appears.\n"
-    "6. FORMATTING: Present your answer in smooth, continuous, well-formed sentences and paragraphs. Do NOT insert awkward mid-sentence line breaks or split words across lines (e.g. write 'transformation' instead of 'transfor- mation')."
-)
-
-GROUNDED_HUMAN_TEMPLATE = (
-    "Document Context:\n\n"
-    "{context}\n\n"
-    "---\n\n"
-    "Question: {question}\n\n"
-    "Verbatim Document Answer (extract only exact text present in the document, cite [1], [2]):"
-)
-
-# General chat prompt templates for out-of-document or conversational queries
-GENERAL_SYSTEM_TEMPLATE = (
-    "Today's real-world current date is {current_date} (current time: {current_time}).\n\n"
-    "You are an intelligent, versatile, and up-to-date AI assistant like ChatGPT.\n"
-    "When asked about today's date, day, month, year, or current time, ALWAYS answer with today's date and time provided above.\n"
-    "You provide accurate, well-structured, and helpful answers on all topics including:\n"
-    "- Movies, entertainment, and pop culture\n"
-    "- Stock market prices, financial analysis, and companies\n"
-    "- Sports scores, teams, tournaments, and athletes\n"
-    "- Politics, government, and world events\n"
-    "- Technology, coding, science, and history\n"
-    "When live web or market data is provided, use it to give exact, real-time answers."
-)
-
-GENERAL_HUMAN_TEMPLATE_WITH_WEB = (
-    "Live Real-Time Web Context:\n"
-    "{live_context}\n\n"
-    "User Question:\n"
-    "{question}\n\n"
-    "Helpful & Detailed Answer:"
-)
-
-GENERAL_HUMAN_TEMPLATE_PLAIN = (
-    "User Question:\n"
-    "{question}\n\n"
-    "Helpful & Detailed Answer:"
+from backend.llm.prompts import (
+    GROUNDED_SYSTEM_TEMPLATE,
+    GROUNDED_HUMAN_TEMPLATE,
+    VERBATIM_EXTRACTION_SYSTEM_TEMPLATE,
+    VERBATIM_EXTRACTION_HUMAN_TEMPLATE,
+    GENERAL_SYSTEM_TEMPLATE,
+    GENERAL_HUMAN_TEMPLATE_PLAIN,
+    GENERAL_HUMAN_TEMPLATE_WITH_WEB,
+    GROUNDING_VALIDATION_SYSTEM_TEMPLATE,
+    GROUNDING_VALIDATION_HUMAN_TEMPLATE,
+    GROUNDED_REVISION_HUMAN_TEMPLATE,
+    NOT_FOUND_RESPONSE,
+    GroundingValidationResult,
 )
 
 
@@ -165,15 +133,15 @@ class LangChainAdapter:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        # Precompile ChatPromptTemplates
+        # Precompile ChatPromptTemplates for all four operational categories
         self.grounded_prompt_template = ChatPromptTemplate.from_messages([
             ("system", GROUNDED_SYSTEM_TEMPLATE),
             ("human", GROUNDED_HUMAN_TEMPLATE),
         ])
 
-        self.general_prompt_template_web = ChatPromptTemplate.from_messages([
-            ("system", GENERAL_SYSTEM_TEMPLATE),
-            ("human", GENERAL_HUMAN_TEMPLATE_WITH_WEB),
+        self.verbatim_prompt_template = ChatPromptTemplate.from_messages([
+            ("system", VERBATIM_EXTRACTION_SYSTEM_TEMPLATE),
+            ("human", VERBATIM_EXTRACTION_HUMAN_TEMPLATE),
         ])
 
         self.general_prompt_template_plain = ChatPromptTemplate.from_messages([
@@ -181,9 +149,25 @@ class LangChainAdapter:
             ("human", GENERAL_HUMAN_TEMPLATE_PLAIN),
         ])
 
+        self.general_prompt_template_web = ChatPromptTemplate.from_messages([
+            ("system", GENERAL_SYSTEM_TEMPLATE),
+            ("human", GENERAL_HUMAN_TEMPLATE_WITH_WEB),
+        ])
+
+        self.validation_prompt_template = ChatPromptTemplate.from_messages([
+            ("system", GROUNDING_VALIDATION_SYSTEM_TEMPLATE),
+            ("human", GROUNDING_VALIDATION_HUMAN_TEMPLATE),
+        ])
+
+        self.revision_prompt_template = ChatPromptTemplate.from_messages([
+            ("system", GROUNDED_SYSTEM_TEMPLATE),
+            ("human", GROUNDED_REVISION_HUMAN_TEMPLATE),
+        ])
+
         logger.info(
             f"[LANGCHAIN] Adapter initialized for model='{self.model_name}' at '{self.base_url}'"
         )
+
 
     def get_llm(
         self,
@@ -216,28 +200,51 @@ class LangChainAdapter:
         while strictly preserving all structural provenance and citation metadata.
         """
         documents: List[Document] = []
+        from collections import Counter
         for idx, chunk in enumerate(chunks):
             source_num = idx + 1
-            page = chunk.get("page", 1)
+            bboxes = chunk.get("bboxes", [])
+            raw_page = chunk.get("page", 1)
+
+            candidate_pages = []
+            if bboxes:
+                candidate_pages = sorted(list(set(int(b.get("page")) for b in bboxes if b.get("page"))))
+            if not candidate_pages:
+                candidate_pages = [int(raw_page)]
+
+            if bboxes:
+                substantive = [b for b in bboxes if len(b.get("text", "").strip()) > 3]
+                target = substantive if substantive else bboxes
+                counts = Counter(int(b.get("page")) for b in target if b.get("page"))
+                true_page = counts.most_common(1)[0][0] if counts else int(raw_page)
+            else:
+                true_page = int(raw_page)
+
+            page_str = f"{candidate_pages[0]}-{candidate_pages[-1]}" if len(candidate_pages) > 1 else str(true_page)
+
             text = chunk.get("text", "").strip()
             doc_id = chunk.get("doc_id", "")
             doc_name = (
-                chunk.get("doc_name")
+                chunk.get("filename")
+                or chunk.get("doc_name")
                 or chunk.get("document_name")
                 or chunk.get("metadata", {}).get("doc_name", "")
+                or chunk.get("metadata", {}).get("filename", "")
             )
             chunk_id = chunk.get("chunk_id", "")
             heading_path = chunk.get("heading_path", [])
-            section_str = " > ".join(heading_path) if heading_path else f"Page {page}"
-            bboxes = chunk.get("bboxes", [])
+            section_str = " > ".join(heading_path) if heading_path else f"Page {page_str}"
             retrieval_score = float(chunk.get("score", 0.0))
             reranker_score = float(chunk.get("reranker_score", retrieval_score))
 
             metadata = {
                 "document_id": doc_id,
                 "document_name": doc_name,
+                "filename": doc_name,
                 "chunk_id": chunk_id,
-                "page_number": page,
+                "page_number": true_page,
+                "page_str": page_str,
+                "candidate_pages": candidate_pages,
                 "section": section_str,
                 "heading_path": heading_path,
                 "bbox": bboxes,
@@ -254,51 +261,114 @@ class LangChainAdapter:
         logger.info(f"[LANGCHAIN] Converted {len(documents)} chunks to LangChain Document objects")
         return documents
 
-    def build_grounded_messages(
+    def format_context_from_documents(
         self,
-        question: str,
         documents: List[Document],
-    ) -> Tuple[List[BaseMessage], List[Dict[str, Any]]]:
+        max_char_budget: Optional[int] = None
+    ) -> Tuple[str, List[Dict[str, Any]]]:
         """
-        Builds structured LangChain messages (SystemMessage + HumanMessage)
-        and extracts the citations payload required by PDF.js highlighting.
+        Builds complete, formatted context sources respecting a context budget,
+        preserving complete relevant chunks without arbitrary hard truncation.
+        Returns: (formatted_context_string, citations_payload)
         """
-        now = datetime.now()
-        current_date_str = now.strftime("%A, %B %d, %Y")
+        if max_char_budget is None:
+            configured_budget = getattr(settings, "CONTEXT_BUDGET_TOKENS", 2048)
+            ctx_tokens = getattr(settings, "LLM_NUM_CTX", 4096)
+            max_out_tokens = getattr(settings, "LLM_MAX_TOKENS", 1024)
+            available_tokens = min(configured_budget, max(1500, ctx_tokens - max_out_tokens - 800))
+            max_char_budget = available_tokens * 4
 
         context_blocks: List[str] = []
         citations_payload: List[Dict[str, Any]] = []
+        current_chars = 0
 
         for doc in documents:
             source_idx = doc.metadata.get("source_index", 1)
             page = doc.metadata.get("page_number", 1)
-            section = doc.metadata.get("section", "")
-            content = doc.page_content[:3500]
+            page_str = doc.metadata.get("page_str") or str(page)
+            full_text = doc.page_content.strip()
 
-            header = f"[{source_idx}] (Page {page})"
-            if section:
-                header += f" - Section: {section}"
-            context_blocks.append(f"{header}:\n{content}")
+            header = f"=== CONTEXT SOURCE [{source_idx}] (Page {page_str}) ==="
+            header_len = len(header) + 2
+
+            # Context budget check
+            remaining_budget = max_char_budget - current_chars - header_len
+            if remaining_budget <= 150 and context_blocks:
+                logger.info(
+                    f"[CONTEXT] Budget reached ({current_chars}/{max_char_budget} chars). "
+                    f"Included {len(context_blocks)} chunks."
+                )
+                break
+
+            if len(full_text) > remaining_budget and context_blocks:
+                content = full_text[:remaining_budget]
+            else:
+                content = full_text
+
+            context_blocks.append(f"{header}\n{content}")
+            current_chars += len(header) + len(content) + 2
 
             citations_payload.append({
                 "source_index": source_idx,
                 "chunk_id": doc.metadata.get("chunk_id", ""),
                 "doc_id": doc.metadata.get("document_id", ""),
+                "filename": doc.metadata.get("filename") or doc.metadata.get("document_name", ""),
                 "page": page,
+                "candidate_pages": doc.metadata.get("candidate_pages", [page]),
                 "bboxes": doc.metadata.get("bbox", []),
                 "heading_path": doc.metadata.get("heading_path", []),
-                "snippet": doc.page_content[:250],
+                "snippet": full_text[:250],
+                "full_text": full_text,
+                "text": full_text,
             })
 
         formatted_context = "\n\n".join(context_blocks)
+        return formatted_context, citations_payload
+
+    def build_grounded_messages(
+        self,
+        question: str,
+        documents: List[Document],
+        max_char_budget: Optional[int] = None,
+    ) -> Tuple[List[BaseMessage], List[Dict[str, Any]]]:
+        """
+        Builds structured LangChain messages for grounded document QA (GROUNDED_SYSTEM_TEMPLATE + GROUNDED_HUMAN_TEMPLATE)
+        and extracts the complete citations payload for PDF.js highlighting and validation.
+        """
+        formatted_context, citations_payload = self.format_context_from_documents(
+            documents=documents,
+            max_char_budget=max_char_budget
+        )
 
         messages = self.grounded_prompt_template.format_messages(
-            current_date=current_date_str,
             context=formatted_context,
             question=question,
         )
 
         logger.info("[LANGCHAIN] Grounded prompt constructed with SystemMessage and HumanMessage")
+        return messages, citations_payload
+
+    def build_verbatim_messages(
+        self,
+        question: str,
+        documents: List[Document],
+        max_char_budget: Optional[int] = None,
+    ) -> Tuple[List[BaseMessage], List[Dict[str, Any]]]:
+        """
+        Builds structured LangChain messages for verbatim / exact-text extraction
+        (VERBATIM_EXTRACTION_SYSTEM_TEMPLATE + VERBATIM_EXTRACTION_HUMAN_TEMPLATE).
+        """
+        formatted_context, citations_payload = self.format_context_from_documents(
+            documents=documents,
+            max_char_budget=max_char_budget
+        )
+
+        messages = self.verbatim_prompt_template.format_messages(
+            context=formatted_context,
+            question=question,
+        )
+
+        logger.info("[LANGCHAIN] Verbatim extraction prompt constructed with SystemMessage and HumanMessage")
         return messages, citations_payload
 
     def build_general_messages(
@@ -308,27 +378,99 @@ class LangChainAdapter:
     ) -> List[BaseMessage]:
         """
         Builds LangChain messages for general real-world / conversational queries.
+        Selects plain general template or web-augmented template based on context availability.
         """
-        now = datetime.now()
-        current_date_str = now.strftime("%A, %B %d, %Y")
-        current_time_str = now.strftime("%I:%M %p")
-
         if live_context:
             messages = self.general_prompt_template_web.format_messages(
-                current_date=current_date_str,
-                current_time=current_time_str,
                 live_context=live_context,
                 question=question,
             )
         else:
             messages = self.general_prompt_template_plain.format_messages(
-                current_date=current_date_str,
-                current_time=current_time_str,
                 question=question,
             )
 
         logger.info("[LANGCHAIN] General prompt constructed with SystemMessage and HumanMessage")
         return messages
+
+    def build_validation_messages(
+        self,
+        question: str,
+        context: str,
+        draft_answer: str,
+    ) -> List[BaseMessage]:
+        """
+        Builds messages for the grounding validation stage.
+        """
+        return self.validation_prompt_template.format_messages(
+            context=context,
+            question=question,
+            draft_answer=draft_answer,
+        )
+
+    def build_revision_messages(
+        self,
+        question: str,
+        context: str,
+        draft_answer: str,
+        unsupported_claims: List[str],
+        contradicted_claims: List[str],
+        missing_information: List[str],
+    ) -> List[BaseMessage]:
+        """
+        Builds messages to revise an answer based on grounding validator feedback.
+        """
+        return self.revision_prompt_template.format_messages(
+            context=context,
+            question=question,
+            draft_answer=draft_answer,
+            unsupported_claims=json.dumps(unsupported_claims) if unsupported_claims else "None",
+            contradicted_claims=json.dumps(contradicted_claims) if contradicted_claims else "None",
+            missing_information=json.dumps(missing_information) if missing_information else "None",
+        )
+
+    async def validate_draft_answer(
+        self,
+        question: str,
+        context: str,
+        draft_answer: str,
+    ) -> GroundingValidationResult:
+        """
+        Compares a generated draft against retrieved context using GROUNDING_VALIDATION_SYSTEM_TEMPLATE.
+        Returns a validated GroundingValidationResult with safe parsing and fallbacks.
+        """
+        if not draft_answer or not context:
+            return GroundingValidationResult(grounded=True, recommendation="accept")
+
+        messages = self.build_validation_messages(
+            question=question,
+            context=context,
+            draft_answer=draft_answer,
+        )
+
+        try:
+            raw_response = await self.ainvoke_messages(
+                messages,
+                temperature=0.0,
+                max_tokens=512,
+            )
+            clean_str = raw_response.strip()
+            # Strip code fences if present
+            code_block_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", clean_str)
+            if code_block_match:
+                clean_str = code_block_match.group(1).strip()
+            else:
+                json_match = re.search(r"\{[\s\S]*\}", clean_str)
+                if json_match:
+                    clean_str = json_match.group(0).strip()
+
+            parsed = json.loads(clean_str)
+            result = GroundingValidationResult(**parsed)
+            logger.info(f"[VALIDATION] Recommendation: {result.recommendation}, Grounded: {result.grounded}")
+            return result
+        except Exception as e:
+            logger.debug(f"[VALIDATION] Validation check returned non-JSON or encountered error: {e}")
+            return GroundingValidationResult(grounded=True, recommendation="accept")
 
     async def stream_messages(
         self,
@@ -374,7 +516,12 @@ class LangChainAdapter:
                     f"\n[Ollama timeout error: Request to '{self.model_name}' timed out. "
                     f"Inference on CPU with a 7B model can take longer; consider GPU offloading or increasing LLM_TIMEOUT.]"
                 )
-            elif "connection" in err_str.lower() or "connect" in err_str.lower():
+            elif (
+                isinstance(e, ConnectionError)
+                or "connection" in err_str.lower()
+                or "connect" in err_str.lower()
+                or "could not reach" in err_str.lower()
+            ):
                 yield (
                     f"\n[Ollama connection error: Could not reach Ollama at {self.base_url}. "
                     f"Please ensure Ollama is running.]"
@@ -412,16 +559,20 @@ class LangChainAdapter:
         chunks: List[Dict[str, Any]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        prompt_type: str = "grounded_qa",
     ) -> Tuple[AsyncGenerator[str, None], List[Dict[str, Any]]]:
         """
         End-to-end grounded RAG orchestration:
         1. Chunks -> LangChain Documents
-        2. Documents -> SystemMessage + HumanMessage Prompt
+        2. Documents -> SystemMessage + HumanMessage Prompt (Grounded QA or Verbatim Extraction)
         3. Messages -> ChatOllama token stream
         Returns: (token_stream_generator, citations_payload)
         """
         documents = self.chunks_to_documents(chunks)
-        messages, citations = self.build_grounded_messages(question, documents)
+        if prompt_type == "verbatim_extraction":
+            messages, citations = self.build_verbatim_messages(question, documents)
+        else:
+            messages, citations = self.build_grounded_messages(question, documents)
 
         async def token_generator():
             async for token in self.stream_messages(
@@ -453,3 +604,4 @@ class LangChainAdapter:
 
 
 langchain_adapter = LangChainAdapter()
+

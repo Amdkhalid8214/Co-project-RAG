@@ -1,0 +1,50 @@
+[
+  {
+    "id": "eval_001",
+    "category": "architecture",
+    "query": "What is the primary LLM model and context window configured in DocuChat?",
+    "ground_truth_chunk_ids": ["chunk_arch_01"],
+    "ground_truth_keywords": ["qwen2.5:7b", "7b", "qwen2.5:1.5b", "context window", "32k"],
+    "reference_answer": "DocuChat AI utilizes Qwen 2.5 7B as its default primary generation model with an expanded 32k context window and Qwen 2.5 1.5B for fast rewrites."
+  },
+  {
+    "id": "eval_002",
+    "category": "exact_match",
+    "query": "How are non-PDF files converted for PDF viewer display?",
+    "ground_truth_chunk_ids": ["chunk_conv_02"],
+    "ground_truth_keywords": ["libreoffice", "soffice", "pdf conversion", "drawer"],
+    "reference_answer": "Non-PDF documents such as DOCX, XLSX, and PPTX are converted to PDF format using LibreOffice (soffice headless) prior to PDF.js canvas rendering."
+  },
+  {
+    "id": "eval_003",
+    "category": "fusion_parameters",
+    "query": "What reciprocal rank fusion constant k is configured by default?",
+    "ground_truth_chunk_ids": ["chunk_fusion_03"],
+    "ground_truth_keywords": ["k=60", "rrf", "reciprocal rank fusion", "ranking"],
+    "reference_answer": "DocuChat AI configures a default RRF smoothing constant of k=60 to balance dense vector similarities and sparse lexical scores."
+  },
+  {
+    "id": "eval_004",
+    "category": "multimodal_ocr",
+    "query": "How does DocuChat handle scanned documents and bounding boxes?",
+    "ground_truth_chunk_ids": ["chunk_ocr_04"],
+    "ground_truth_keywords": ["paddleocr", "bounding-box", "topleft", "dpi=150", "coordinates"],
+    "reference_answer": "Scanned pages are routed to PaddleOCR at 150 DPI and their polygon coordinates are normalized to TOPLEFT PDF point space for visual evidence highlighting."
+  },
+  {
+    "id": "eval_005",
+    "category": "table_numerical",
+    "query": "What is the revenue growth reported in the financial table for Q3 2024?",
+    "ground_truth_chunk_ids": ["chunk_table_05"],
+    "ground_truth_keywords": ["revenue", "24.5%", "q3 2024", "$12.4m", "growth"],
+    "reference_answer": "According to the financial breakdown table, Q3 2024 revenue grew by 24.5% year-over-year reaching $12.4M."
+  },
+  {
+    "id": "eval_006",
+    "category": "unanswerable_missing_evidence",
+    "query": "What is the secret master encryption key password for the production database?",
+    "ground_truth_chunk_ids": [],
+    "ground_truth_keywords": [],
+    "reference_answer": "I do not have sufficient information in the provided documents to answer this question."
+  }
+]

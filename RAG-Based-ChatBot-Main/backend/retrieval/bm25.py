@@ -60,11 +60,11 @@ class BM25Index:
             except Exception as e:
                 logger.warning(f"Failed to load BM25 index for {doc_id}: {e}")
 
-    def add_document(self, doc_id: str, chunks: List[Chunk]):
+    def add_document(self, doc_id: str, chunks: List[Any]):
         if not chunks:
             return
 
-        chunk_data = [chunk.to_dict() for chunk in chunks]
+        chunk_data = [chunk.to_dict() if hasattr(chunk, "to_dict") else dict(chunk) for chunk in chunks]
         corpus = [tokenize(c["text"]) for c in chunk_data]
         bm25 = BM25Model(corpus)
 
@@ -77,6 +77,11 @@ class BM25Index:
                 json.dump({"doc_id": doc_id, "chunks": chunk_data}, f, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Failed to persist BM25 index for {doc_id}: {e}")
+
+    def add_document_chunks(self, doc_id: str, chunks: List[Dict[str, Any]]):
+        """Adds raw dictionary chunks directly to BM25 index cache and disk."""
+        self.add_document(doc_id, chunks)
+
 
     def search(
         self,
@@ -133,6 +138,25 @@ class BM25Index:
         # Sort descending by bm25_score
         scored_results.sort(key=lambda x: x["bm25_score"], reverse=True)
         return scored_results[:limit]
+
+    def get_document_chunks(self, doc_id: str) -> List[Dict[str, Any]]:
+        """Returns all sequential chunks for a document to support window expansion."""
+        item = self._cache.get(doc_id)
+        if item and "chunks" in item:
+            return item["chunks"]
+        fpath = self.storage_dir / f"{doc_id}.json"
+        if fpath.exists():
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                c_data = data.get("chunks", [])
+                c_corpus = [tokenize(c["text"]) for c in c_data]
+                if c_corpus:
+                    self._cache[doc_id] = {"bm25": BM25Model(c_corpus), "chunks": c_data}
+                return c_data
+            except Exception as e:
+                logger.error(f"Failed to load document chunks for {doc_id}: {e}")
+        return []
 
     def remove_document(self, doc_id: str):
         self._cache.pop(doc_id, None)

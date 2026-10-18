@@ -249,6 +249,15 @@ class DoclingParser:
             # Extract text blocks
             # block format: (x0, y0, x1, y1, text, block_no, block_type)
             blocks = page.get_text("blocks")
+            total_text_len = sum(len(b[4].strip()) for b in blocks if len(b) >= 5)
+
+            # Detect scanned pages with empty or suspiciously short text (< 40 chars)
+            if total_text_len < 40:
+                logger.info(f"Page {page_num} has minimal text ({total_text_len} chars). Triggering selective OCR...")
+                ocr_blocks = self._extract_scanned_page_ocr(page, page_num, width, height)
+                if ocr_blocks:
+                    blocks = ocr_blocks
+
             for b in blocks:
                 if len(b) < 5:
                     continue
@@ -290,5 +299,19 @@ class DoclingParser:
 
         doc.close()
         return elements
+
+    def _extract_scanned_page_ocr(self, page, page_num: int, width: float, height: float):
+        """Attempts OCR extraction on a single scanned page using PyMuPDF OCR."""
+        try:
+            # PyMuPDF built-in OCR support
+            textpage_ocr = page.get_textpage_ocr(flags=0, language="eng", dpi=150, full=True)
+            ocr_blocks = textpage_ocr.extractBLOCKS()
+            if ocr_blocks:
+                logger.info(f"Successfully extracted {len(ocr_blocks)} OCR blocks from scanned page {page_num}.")
+                return ocr_blocks
+        except Exception as e:
+            logger.debug(f"PyMuPDF OCR unavailable or failed on page {page_num}: {e}")
+        return []
+
 
 docling_parser = DoclingParser()

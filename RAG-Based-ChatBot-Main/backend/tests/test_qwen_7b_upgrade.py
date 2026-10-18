@@ -129,7 +129,7 @@ def test_live_web_search_and_tool_result_handling():
 
     assert len(messages) == 2
     human_content = messages[1].content
-    assert "Live Real-Time Web Context:" in human_content
+    assert "Supplied Live or External Context:" in human_content
     assert "135.50 USD" in human_content
     assert "How is Nvidia stock performing today?" in human_content
 
@@ -209,7 +209,7 @@ def test_insufficient_context_refusal_no_fabrication():
     messages, citations = adapter.build_grounded_messages(question, [doc])
 
     # Ensure grounding rules instruct refusal
-    assert "This is not mentioned in the document" in messages[0].content
+    assert "This is not mentioned in the provided document context" in messages[0].content
 
     # Simulate strict refusal from Qwen 7B
     async def mock_refusal_stream(msgs):

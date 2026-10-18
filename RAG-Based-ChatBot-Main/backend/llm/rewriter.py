@@ -1,5 +1,6 @@
 import re
 import json
+import asyncio
 import logging
 from typing import List, Dict
 from backend.llm.client import ollama_client
@@ -25,8 +26,21 @@ class QueryRewriter:
         Returns list of queries: [standalone_query, alt_1, alt_2].
         """
         clean_q = question.strip()
+
+        # Handle compound questions joined by "and", "along with", "as well as", or comma
+        if re.search(r"\b(and|as well as|along with)\b", clean_q, re.I):
+            parts = re.split(r"\b(?:and|as well as|along with)\b", clean_q, flags=re.I)
+            sub_queries = [p.strip() for p in parts if len(p.strip()) >= 10]
+            if len(sub_queries) >= 2:
+                # Clean leading phrases like 'explain', 'what are', 'tell me about'
+                clean_subs = []
+                for sq in sub_queries[:2]:
+                    c_sub = re.sub(r'^(?:explain|describe|what are|what is|tell me about|list|detail)\s+(?:the\s+)?', '', sq, flags=re.I).strip()
+                    clean_subs.append(c_sub if len(c_sub) >= 5 else sq)
+                return [clean_q, clean_subs[0], clean_subs[1]]
+
         # Fast bypass: If no chat history or the question has no pronouns/anaphora,
-        # it is already standalone. Skip the extra synchronous LLM call to save 10-15s latency on CPU.
+        # it is already standalone. Skip the extra synchronous LLM call to save latency.
         if not chat_history or not PRONOUN_PATTERN.search(clean_q):
             return [
                 clean_q,
@@ -51,10 +65,13 @@ Format: JSON only: {{"standalone": "...", "alternatives": ["...", "..."]}}
 JSON:"""
 
         try:
-            raw_resp = await ollama_client.generate_complete(
-                prompt=short_prompt,
-                temperature=0.2,
-                max_tokens=100
+            raw_resp = await asyncio.wait_for(
+                ollama_client.generate_complete(
+                    prompt=short_prompt,
+                    temperature=0.2,
+                    max_tokens=60
+                ),
+                timeout=3.0
             )
 
             json_match = re.search(r"\{.*?\}", raw_resp, re.DOTALL)
