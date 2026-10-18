@@ -40,12 +40,32 @@ def is_verbatim_extraction_request(question: str) -> bool:
     return bool(VERBATIM_REGEX.search(question.strip()))
 
 
+def is_standalone_math_request(question: str) -> bool:
+    """
+    Identifies pure standalone calculation questions (e.g. 'What is 43235 * 254?', '18% of 7500').
+    These are answered directly by the automatic calculator tool rather than querying document text.
+    """
+    if not question:
+        return False
+    s = question.strip()
+    s = re.sub(r'^(what\s+is|calculate|compute|solve|evaluate|how\s+much\s+is)\s+', '', s, flags=re.I).rstrip('?. ')
+    if re.search(r'\d+(?:\.\d+)?\s*%\s*(of|\*)\s*\d+', s, flags=re.I):
+        return True
+    allowed_chars = set('0123456789+-*/%^(). x÷×')
+    if s and set(s).issubset(allowed_chars) and any(c.isdigit() for c in s) and any(c in '+-*/%^x÷×' for c in s):
+        return True
+    return False
+
+
 class QueryRouter:
     def __init__(self, mode: str = settings.ROUTER_MODE):
         self.mode = mode
 
     def is_verbatim_request(self, question: str) -> bool:
         return is_verbatim_extraction_request(question)
+
+    def is_math_request(self, question: str) -> bool:
+        return is_standalone_math_request(question)
 
     async def detect_intent(
         self,
@@ -69,6 +89,9 @@ class QueryRouter:
                 return "document", "Exact Extraction", "verbatim_extraction"
             return "document", badge, "grounded_qa"
 
+        if is_standalone_math_request(question):
+            return "general", "🧮 Calculator", "general_chat"
+
         if has_external_context:
             return "general", "🌐 Live Web Search", "general_chat_with_context"
         return "general", badge, "general_chat"
@@ -84,20 +107,29 @@ class QueryRouter:
         - When no documents are loaded/scoped: Always 'general' (ChatGPT real-world mode).
         - When documents ARE loaded/scoped:
             - Pure greetings -> 'general'
+            - Standalone mathematical calculations -> 'general' (answered via automatic calculator tool)
             - All other questions -> 'document' (prioritize document facts, citations, and highlight).
         """
         clean_q = question.strip()
 
         # Case 1: No documents uploaded or active -> pure ChatGPT mode
         if not has_documents or (active_doc_ids is not None and len(active_doc_ids) == 0):
+            if is_standalone_math_request(clean_q):
+                return "general", "🧮 Calculator"
             return "general", "General answer"
 
         # Case 2: Common conversational pleasantries/greetings
         if GREETINGS_PATTERN.match(clean_q):
             return "general", "General answer"
 
-        # Case 3: Document is active -> Always route to document pipeline to answer from document!
+        # Case 3: Standalone math calculation queries
+        if is_standalone_math_request(clean_q):
+            return "general", "🧮 Calculator"
+
+        # Case 4: Document is active -> Always route to document pipeline to answer from document!
         return "document", "From document"
 
+
 query_router = QueryRouter()
+
 

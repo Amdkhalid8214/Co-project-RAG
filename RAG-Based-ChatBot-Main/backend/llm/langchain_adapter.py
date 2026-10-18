@@ -32,11 +32,12 @@ from datetime import datetime
 from typing import List, Dict, Any, AsyncGenerator, Optional, Tuple
 
 from langchain_core.documents import Document
-from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 
 from backend.config import settings
+from backend.tools.calculator import calculator_tool, safe_calculate
 
 logger = logging.getLogger(__name__)
 
@@ -553,6 +554,93 @@ class LangChainAdapter:
                 return f"[Ollama timeout error: Request to '{self.model_name}' timed out]"
             return ""
 
+    async def stream_chat_with_tools(
+        self,
+        messages: List[BaseMessage],
+        tools: Optional[List[Any]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        max_iterations: int = 3,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Asynchronously streams generation tokens with automatic LangChain tool calling:
+        HumanMessage -> AIMessage with tool_calls -> execute calculator -> ToolMessage -> stream final tokens.
+        If no tool is called, streams the direct response tokens seamlessly.
+        """
+        if not tools:
+            async for token in self.stream_messages(messages, temperature=temperature, max_tokens=max_tokens):
+                yield token
+            return
+
+        llm_plain = self.get_llm(temperature=temperature, max_tokens=max_tokens)
+        try:
+            llm_with_tools = llm_plain.bind_tools(tools)
+        except Exception as e:
+            logger.warning(f"[LANGCHAIN] bind_tools failed on model {self.model_name}: {e}. Streaming plain response.")
+            async for token in self.stream_messages(messages, temperature=temperature, max_tokens=max_tokens):
+                yield token
+            return
+
+        tools_by_name = {getattr(t, "name", str(t)): t for t in tools}
+        current_messages = list(messages)
+
+        try:
+            for iteration in range(max_iterations):
+                ai_response = await llm_with_tools.ainvoke(current_messages)
+                tool_calls = getattr(ai_response, "tool_calls", None)
+
+                if not tool_calls:
+                    # Model provided final direct answer without tool call
+                    content = str(ai_response.content)
+                    if content:
+                        words = content.split(" ")
+                        for idx, word in enumerate(words):
+                            token = word if idx == len(words) - 1 else word + " "
+                            yield token
+                    return
+
+                logger.info(f"[LANGCHAIN] Tool call triggered at step {iteration + 1}: {tool_calls}")
+                current_messages.append(ai_response)
+
+                for tc in tool_calls:
+                    t_name = tc.get("name")
+                    t_args = tc.get("args", {})
+                    t_id = tc.get("id", f"call_{iteration}")
+
+                    if t_name in tools_by_name:
+                        tool_obj = tools_by_name[t_name]
+                        try:
+                            if hasattr(tool_obj, "ainvoke"):
+                                raw_result = await tool_obj.ainvoke(t_args)
+                            else:
+                                raw_result = tool_obj.invoke(t_args)
+                            result_str = str(raw_result)
+                        except Exception as e:
+                            logger.error(f"[TOOL] Error executing tool {t_name}: {e}")
+                            result_str = json.dumps({"error": f"Tool execution failed: {str(e)}"})
+                    else:
+                        result_str = json.dumps({"error": f"Tool '{t_name}' not available."})
+
+                    tool_msg = ToolMessage(content=result_str, tool_call_id=t_id, name=t_name)
+                    current_messages.append(tool_msg)
+
+            # Stream final response tokens from llm_plain given the complete tool trajectory
+            async for chunk in llm_plain.astream(current_messages):
+                token = chunk.content
+                if isinstance(token, str) and token:
+                    yield token
+                elif isinstance(token, list):
+                    for item in token:
+                        if isinstance(item, str):
+                            yield item
+                        elif isinstance(item, dict) and "text" in item:
+                            yield item["text"]
+
+        except Exception as e:
+            err_str = str(e)
+            logger.error(f"[LANGCHAIN] Error in stream_chat_with_tools: {e}", exc_info=True)
+            yield f"\n[Generation error: {err_str}]"
+
     async def stream_grounded_chat(
         self,
         question: str,
@@ -560,23 +648,32 @@ class LangChainAdapter:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         prompt_type: str = "grounded_qa",
+        tools: Optional[List[Any]] = None,
     ) -> Tuple[AsyncGenerator[str, None], List[Dict[str, Any]]]:
         """
-        End-to-end grounded RAG orchestration:
+        End-to-end grounded RAG orchestration with optional automatic tool calling:
         1. Chunks -> LangChain Documents
         2. Documents -> SystemMessage + HumanMessage Prompt (Grounded QA or Verbatim Extraction)
-        3. Messages -> ChatOllama token stream
+        3. Messages -> ChatOllama tool calling stream
         Returns: (token_stream_generator, citations_payload)
         """
         documents = self.chunks_to_documents(chunks)
         if prompt_type == "verbatim_extraction":
             messages, citations = self.build_verbatim_messages(question, documents)
+            use_tools = None
         else:
             messages, citations = self.build_grounded_messages(question, documents)
+            if tools is not None:
+                use_tools = tools
+            elif any(sym in question for sym in ("*", "+", "/", "-", "%", "^", "calculate", "multiply", "divide", "compute", "total", "sum", "average")):
+                use_tools = [calculator_tool]
+            else:
+                use_tools = None
 
         async def token_generator():
-            async for token in self.stream_messages(
+            async for token in self.stream_chat_with_tools(
                 messages,
+                tools=use_tools,
                 temperature=temperature,
                 max_tokens=max_tokens,
             ):
@@ -590,18 +687,76 @@ class LangChainAdapter:
         live_context: str = "",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        tools: Optional[List[Any]] = None,
     ) -> AsyncGenerator[str, None]:
         """
-        Streams response for conversational / real-world queries via LangChain.
+        Streams response for conversational / real-world queries via LangChain with automatic tool support.
         """
+        if tools is None:
+            tools = [calculator_tool]
         messages = self.build_general_messages(question, live_context=live_context)
-        async for token in self.stream_messages(
+        async for token in self.stream_chat_with_tools(
             messages,
+            tools=tools,
             temperature=temperature,
             max_tokens=max_tokens,
         ):
             yield token
 
 
+async def execute_tool_call_loop(
+    llm_with_tools: Any,
+    llm_plain: Any,
+    messages: List[BaseMessage],
+    tools: List[Any],
+    max_iterations: int = 3,
+) -> Tuple[str, bool]:
+    """
+    Executes a bounded LangChain tool calling loop:
+    HumanMessage -> AIMessage with tool_calls -> execute tool -> ToolMessage -> AIMessage final answer.
+    Returns: (final_answer_text, was_tool_called)
+    """
+    tools_by_name = {getattr(t, "name", str(t)): t for t in tools}
+    current_messages = list(messages)
+    tool_called_flag = False
+
+    for iteration in range(max_iterations):
+        ai_response = await llm_with_tools.ainvoke(current_messages)
+        tool_calls = getattr(ai_response, "tool_calls", None)
+
+        if not tool_calls:
+            return str(ai_response.content).strip(), tool_called_flag
+
+        tool_called_flag = True
+        current_messages.append(ai_response)
+
+        for tc in tool_calls:
+            t_name = tc.get("name")
+            t_args = tc.get("args", {})
+            t_id = tc.get("id", f"call_{iteration}")
+
+            if t_name in tools_by_name:
+                tool_obj = tools_by_name[t_name]
+                try:
+                    if hasattr(tool_obj, "ainvoke"):
+                        raw_result = await tool_obj.ainvoke(t_args)
+                    else:
+                        raw_result = tool_obj.invoke(t_args)
+                    result_str = str(raw_result)
+                except Exception as e:
+                    logger.error(f"[TOOL] Error executing {t_name}: {e}")
+                    result_str = json.dumps({"error": f"Tool execution failed: {str(e)}"})
+            else:
+                result_str = json.dumps({"error": f"Tool '{t_name}' not available."})
+
+            tool_msg = ToolMessage(content=result_str, tool_call_id=t_id, name=t_name)
+            current_messages.append(tool_msg)
+
+    # After completing tool calls, get final generation from llm_plain
+    final_response = await llm_plain.ainvoke(current_messages)
+    return str(final_response.content).strip(), tool_called_flag
+
+
 langchain_adapter = LangChainAdapter()
+
 

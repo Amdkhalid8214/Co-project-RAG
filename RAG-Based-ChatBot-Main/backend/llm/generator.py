@@ -194,15 +194,18 @@ class GroundedGenerator:
         }
         yield f"event: meta\ndata: {json.dumps(meta_data)}\n\n"
 
-        # Check if question is a date/time/clock query to bypass slow web scraping
+        # Check if question is a date/time query or math calculation to bypass slow web scraping
         q_lower = question.lower()
         date_keywords = ["today", "date", "year", "month", "what day", "what time", "current time", "clock"]
-        is_date_query = any(k in q_lower for k in date_keywords)
+        math_keywords = ["calculate", "multiply", "divide", "compute", "addition", "subtraction"]
+        math_symbols = ["*", "/", "+", "-", "%", "^"]
+        has_math_syntax = any(s in question for s in math_symbols) and any(c.isdigit() for c in question)
+        is_direct_query = any(k in q_lower for k in date_keywords) or any(k in q_lower for k in math_keywords) or has_math_syntax
 
         # Case A: General chat route (no documents active or ChatGPT mode)
         if route != "document":
             live_context = ""
-            if not is_date_query:
+            if not is_direct_query:
                 live_context = await asyncio.to_thread(live_web_search.get_live_context, question)
 
             async for token in langchain_adapter.stream_general_chat(
