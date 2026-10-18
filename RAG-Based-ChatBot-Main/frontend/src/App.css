@@ -1675,7 +1675,7 @@ body {
   position: absolute;
   bottom: 84px;
   left: 28px;
-  width: 440px;
+  width: 250px;
   max-width: calc(100vw - 56px);
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -1728,7 +1728,7 @@ body {
 
 .tools-grid-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 
