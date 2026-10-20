@@ -169,18 +169,34 @@ class GroundedGenerator:
         route: str,
         router_badge: str,
         retrieved_chunks: List[Dict[str, Any]],
-        queries: List[str]
+        queries: List[str],
+        web_mode: bool = False,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Yields Server-Sent Events (SSE) lines:
         - meta event (route badge, transformed queries)
         - token events (streaming LLM tokens orchestrated via LangChain)
-        - citations event (list of cited sources with bboxes for PDF.js highlighting)
+        - citations event (list of cited sources with bboxes for PDF.js highlighting or web links)
         - done event
+        When web_mode is False, web search is strictly prohibited.
+        When web_mode is True, web search is permitted via SearXNG.
+        Injects bounded persistent conversational memory across all modes.
         """
+        from backend.tools.searxng_search import active_web_citations
+        active_web_citations.set([])
+
         # Determine exact request type
         is_verbatim = is_verbatim_extraction_request(question)
         prompt_type = "verbatim_extraction" if is_verbatim else "grounded_qa"
+
+        from backend.llm.router import is_excel_generation_request
+        from backend.tools.excel_generator import active_excel_artifact, generate_workbook_from_request
+        is_excel_gen = (route == "excel_generation" or is_excel_generation_request(question))
+        if is_excel_gen:
+            route = "excel_generation"
+            router_badge = "📊 Excel Generator"
+            prompt_type = "excel_generation"
 
         if is_verbatim and route == "document":
             router_badge = "Exact Extraction"
@@ -191,45 +207,144 @@ class GroundedGenerator:
             "route": route,
             "queries": queries,
             "prompt_type": prompt_type,
+            "web_mode": web_mode,
         }
-        yield f"event: meta\ndata: {json.dumps(meta_data)}\n\n"
+        yield f"event: meta\ndata: {json.dumps(meta_data, ensure_ascii=False)}\n\n"
 
-        # Check if question is a date/time query or math calculation to bypass slow web scraping
-        q_lower = question.lower()
-        date_keywords = ["today", "date", "year", "month", "what day", "what time", "current time", "clock"]
-        math_keywords = ["calculate", "multiply", "divide", "compute", "addition", "subtraction"]
-        math_symbols = ["*", "/", "+", "-", "%", "^"]
-        has_math_syntax = any(s in question for s in math_symbols) and any(c.isdigit() for c in question)
-        is_direct_query = any(k in q_lower for k in date_keywords) or any(k in q_lower for k in math_keywords) or has_math_syntax
+        # Case 0: Excel Generation Route
+        if is_excel_gen:
+            try:
+                artifact = await generate_workbook_from_request(prompt=question, history=history)
+                active_excel_artifact.set(artifact)
 
-        # Case A: General chat route (no documents active or ChatGPT mode)
+                # Emit structured excel_artifact event for chat UI card and coverage dashboard
+                yield f"event: excel_artifact\ndata: {json.dumps(artifact, ensure_ascii=False)}\n\n"
+
+                # Stream confirmation message tokens
+                reply_text = artifact.get(
+                    "reply_message",
+                    f"Done, AMD! I generated the Excel workbook {artifact.get('filename')}."
+                )
+                words = reply_text.split(" ")
+                for idx, w in enumerate(words):
+                    tok = w if idx == len(words) - 1 else w + " "
+                    yield f"event: token\ndata: {json.dumps({'content': tok}, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.01)
+
+            except Exception as ex:
+                logger.error(f"[EXCEL_GEN] Failed to generate Excel workbook: {ex}", exc_info=True)
+                err_text = f"Failed to generate Excel workbook: {str(ex)}"
+                for w in err_text.split(" "):
+                    yield f"event: token\ndata: {json.dumps({'content': w + ' '}, ensure_ascii=False)}\n\n"
+
+            yield f"event: citations\ndata: {json.dumps({'citations': []})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
+            return
+
+        # Case A: General chat route or explicit web mode route
         if route != "document":
+            from backend.tools.weather import active_weather_data, get_weather_forecast_async, extract_location_from_query
+            from backend.llm.router import is_weather_request, is_explicit_web_search_request
+            from backend.tools.searxng_search import active_web_citations, search_searxng_async
+            from backend.llm.memory import package_web_citations
+            active_weather_data.set(None)
+            active_web_citations.set([])
+
             live_context = ""
-            if not is_direct_query:
-                live_context = await asyncio.to_thread(live_web_search.get_live_context, question)
+            is_weather = is_weather_request(question)
+            if is_weather:
+                router_badge = "⛅ Live Weather"
+                # Proactively resolve real Open-Meteo weather data to ground the response
+                target_loc = extract_location_from_query(question) or "Goa"
+                try:
+                    w_res = await get_weather_forecast_async(target_loc)
+                    if w_res.get("status") == "success" and w_res.get("weather"):
+                        active_weather_data.set(w_res["weather"])
+                        live_context = (
+                            f"Verified real-time weather observations and forecast from Open-Meteo:\n{w_res['summary']}\n"
+                            "Instructions: Format your response like this:\n"
+                            f"1. Start with a warm greeting: \"Here's the weather in {w_res['weather']['location']} today...\"\n"
+                            "2. Underneath, provide a concise 'Should you go out today?' section with bullet points:\n"
+                            "- 🏖 Beach visit (or outdoor activities): based on temperature and comfortable times\n"
+                            "- 🌧 Rain: state rain probability and whether rain gear is needed\n"
+                            "- 👕 What to wear: clothing advice based strictly on temperature\n"
+                            "Ground all statements strictly in the verified numbers above."
+                        )
+                        # Immediately yield weather event for frontend WeatherCard
+                        yield f"event: weather\ndata: {json.dumps(w_res['weather'])}\n\n"
+                except Exception as ex:
+                    logger.warning(f"Error fetching live weather in generator: {ex}")
+
+            elif route == "web" or (web_mode and not is_weather) or is_explicit_web_search_request(question):
+                router_badge = "🌐 Live Web Search"
+                try:
+                    search_res = await search_searxng_async(question, inspect_pages=True, fallback=True)
+                    if search_res.get("results"):
+                        live_context = search_res.get("formatted", "")
+                        cites = package_web_citations(question, search_res["results"])
+                        active_web_citations.set(cites)
+                except Exception as ex:
+                    logger.warning(f"Error during proactive web research in generator: {ex}")
 
             async for token in langchain_adapter.stream_general_chat(
                 question=question,
                 live_context=live_context,
                 temperature=0.7,
-                max_tokens=settings.LLM_MAX_TOKENS
+                max_tokens=settings.LLM_MAX_TOKENS,
+                web_mode=web_mode,
+                history=history,
             ):
                 yield f"event: token\ndata: {json.dumps({'content': token})}\n\n"
 
-            yield f"event: citations\ndata: {json.dumps({'citations': []})}\n\n"
+            # Check if weather tool was executed during LangChain tool calls
+            weather_payload = active_weather_data.get()
+            if weather_payload and not is_weather:
+                yield f"event: weather\ndata: {json.dumps(weather_payload)}\n\n"
+
+            web_cites = active_web_citations.get([])
+            yield f"event: citations\ndata: {json.dumps({'citations': web_cites})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
             return
 
         # Case B: Document route but nothing retrieved or passed threshold
         # (e.g. low relevance, off-topic question asked while document is loaded)
         if not retrieved_chunks:
-            notice = NOT_FOUND_RESPONSE + "\n"
-            for word in notice.split(" "):
-                yield f"event: token\ndata: {json.dumps({'content': word + ' '})}\n\n"
+            from backend.tools.excel_analyzer import active_excel_context, execute_excel_analysis
+            excel_ctx = active_excel_context.get()
+            spreadsheet_chunk = None
+            if excel_ctx:
+                try:
+                    meta = execute_excel_analysis("metadata")
+                    if meta.get("status") == "success":
+                        sheet_text = (
+                            f"Worksheet: {meta.get('active_sheet', 'Sheet1')}\n"
+                            f"Total Rows: {meta.get('data_rows', 0)} (data rows)\n"
+                            f"Total Columns: {meta.get('total_columns', 0)}\n"
+                            f"Columns: {', '.join(meta.get('columns', []))}\n"
+                            f"Dimensions: {meta.get('dimensions', 'Unknown')}\n"
+                            f"Filename: {meta.get('filename')}\n"
+                        )
+                        spreadsheet_chunk = {
+                            "chunk_id": f"excel_meta_{meta.get('filename')}",
+                            "doc_id": excel_ctx.get("doc_id", ""),
+                            "filename": meta.get("filename"),
+                            "text": sheet_text,
+                            "page": 1,
+                            "bboxes": []
+                        }
+                except Exception as ex:
+                    logger.debug(f"Excel metadata synthesis error: {ex}")
 
-            yield f"event: citations\ndata: {json.dumps({'citations': []})}\n\n"
-            yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
-            return
+            if spreadsheet_chunk:
+                retrieved_chunks = [spreadsheet_chunk]
+            else:
+                notice = NOT_FOUND_RESPONSE + "\n"
+                for word in notice.split(" "):
+                    yield f"event: token\ndata: {json.dumps({'content': word + ' '})}\n\n"
+
+                yield f"event: citations\ndata: {json.dumps({'citations': []})}\n\n"
+                yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
+                return
 
         # Case C: Document route with retrieved context chunks
         # Orchestrate generation via LangChain (ChatPromptTemplate + SystemMessage/HumanMessage + ChatOllama)
@@ -239,6 +354,8 @@ class GroundedGenerator:
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=settings.LLM_MAX_TOKENS,
             prompt_type=prompt_type,
+            web_mode=web_mode,
+            history=history,
         )
 
         accumulated_tokens = []
@@ -282,7 +399,12 @@ class GroundedGenerator:
             )
             logger.info(f"[CITATION] Evidence refinement completed: {len(citations)} citations")
 
-        # Send citations event (only containing the exact answer highlight boxes)
+        # Append web citations if web tool executed
+        web_cites = active_web_citations.get([])
+        if web_cites:
+            citations = citations + web_cites
+
+        # Send citations event (only containing the exact answer highlight boxes and web citations)
         yield f"event: citations\ndata: {json.dumps({'citations': citations})}\n\n"
         yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
 

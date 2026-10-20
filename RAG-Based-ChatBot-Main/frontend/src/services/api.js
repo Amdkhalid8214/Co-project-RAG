@@ -109,6 +109,21 @@ export const api = {
     return res.json();
   },
 
+  async getSpreadsheetData(docId, sheetName = null, page = 1, pageSize = 100) {
+    const params = new URLSearchParams();
+    if (sheetName) params.append("sheet_name", sheetName);
+    params.append("page", page);
+    params.append("page_size", pageSize);
+    const res = await fetch(`${API_BASE}/documents/${docId}/spreadsheet?${params.toString()}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to load spreadsheet data");
+    }
+    return res.json();
+  },
+
   // Conversations
   async listConversations(skip = 0, limit = 50) {
     const res = await fetch(`${API_BASE}/conversations?skip=${skip}&limit=${limit}`, {
@@ -145,6 +160,16 @@ export const api = {
     return res.json();
   },
 
+  async updateConversation(convId, title) {
+    const res = await fetch(`${API_BASE}/conversations/${convId}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ title }),
+    });
+    if (!res.ok) throw new Error("Failed to update conversation");
+    return res.json();
+  },
+
   // Health
   async getHealth() {
     const res = await fetch(`http://localhost:5000/health`);
@@ -154,5 +179,31 @@ export const api = {
   async getReadiness() {
     const res = await fetch(`http://localhost:5000/ready`);
     return res.json();
+  },
+
+  // Excel Artifact Download
+  getDownloadUrl(filename) {
+    const safeName = encodeURIComponent(filename);
+    return `${API_BASE}/tools/download/${safeName}`;
+  },
+
+  async downloadExcelFile(filename) {
+    const safeName = encodeURIComponent(filename);
+    const url = `${API_BASE}/tools/download/${safeName}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to download workbook: HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(blobUrl);
+    document.body.removeChild(a);
   }
 };
+
+export default api;

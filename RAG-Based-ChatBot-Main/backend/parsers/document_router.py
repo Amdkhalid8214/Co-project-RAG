@@ -44,6 +44,13 @@ class DocumentProcessingRouter:
             "mean_ocr_confidence": 0.0,
         }
 
+        # If spreadsheet (XLSX, XLS, CSV), extract structure directly with openpyxl/csv
+        ext = Path(filepath).suffix.lower()
+        if ext in (".xlsx", ".xls", ".csv"):
+            elements = docling_parser.parse_file(filepath)
+            stats["extraction_methods"].append("spreadsheet_parser")
+            return elements, stats
+
         # If not a PDF (e.g. pure txt/html), delegate directly to docling_parser
         if not target_path.lower().endswith(".pdf"):
             elements = docling_parser.parse_file(filepath, pdf_path=pdf_path)

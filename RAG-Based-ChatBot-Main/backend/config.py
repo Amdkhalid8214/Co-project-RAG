@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     MAX_VALIDATION_RETRIES: int = int(os.getenv("MAX_VALIDATION_RETRIES", "1"))
     CONTEXT_BUDGET_TOKENS: int = 2048
 
+    # Web Search Settings (Local SearXNG Metasearch Engine)
+    SEARXNG_URL: str = os.getenv("SEARXNG_URL", "http://127.0.0.1:8080/search")
+    SEARXNG_TIMEOUT: float = float(os.getenv("SEARXNG_TIMEOUT", "10.0"))
+    SEARXNG_MAX_RESULTS: int = int(os.getenv("SEARXNG_MAX_RESULTS", "5"))
+    ENABLE_WEB_SEARCH: bool = os.getenv("ENABLE_WEB_SEARCH", "true").lower() in ("true", "1", "yes")
+
 
     # Embeddings (Default to ultra-fast, local BAAI/bge-small-en-v1.5 via FastEmbed)
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")

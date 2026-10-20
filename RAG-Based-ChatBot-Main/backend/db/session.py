@@ -59,6 +59,15 @@ async def init_db():
                         sync_conn.exec_driver_sql("ALTER TABLE conversations ADD COLUMN user_id VARCHAR(64)")
                         sync_conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_conversations_user_id ON conversations (user_id)")
 
+                if "messages" in tables:
+                    columns = [c["name"] for c in inspector.get_columns("messages")]
+                    if "weather" not in columns:
+                        logger.info("Auto-migrating SQLite: adding weather to messages")
+                        sync_conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN weather JSON")
+                    if "excel_artifact" not in columns:
+                        logger.info("Auto-migrating SQLite: adding excel_artifact to messages")
+                        sync_conn.exec_driver_sql("ALTER TABLE messages ADD COLUMN excel_artifact JSON")
+
             await conn.run_sync(_migrate_sqlite_columns)
 
 async def check_db_health() -> bool:

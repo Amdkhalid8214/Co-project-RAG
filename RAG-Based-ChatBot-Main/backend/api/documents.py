@@ -237,6 +237,232 @@ async def get_document_file(
         headers={"Content-Disposition": "inline"}
     )
 
+@router.get("/{doc_id}/spreadsheet")
+async def get_document_spreadsheet(
+    doc_id: str,
+    sheet_name: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[UserModel] = Depends(get_current_user_optional)
+):
+    """
+    Safely reads workbook/spreadsheet data with openpyxl/csv.
+    Returns structured JSON with sheet names, columns, paginated rows, and dimensions.
+    Does not expose filesystem paths or execute macros/formulas.
+    """
+    result = await db.execute(select(DocumentModel).where(DocumentModel.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if not await check_doc_access(doc, current_user, db):
+        raise HTTPException(status_code=403, detail="Access denied: You do not have permission to view this document.")
+
+    target_path = doc.original_path
+    if not os.path.exists(target_path):
+        target_path = doc.pdf_path
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="Document file does not exist on disk.")
+
+    ext = Path(target_path).suffix.lower().lstrip(".")
+    if ext not in ("xlsx", "xls", "csv"):
+        raise HTTPException(status_code=400, detail=f"Document format '{ext}' is not a supported spreadsheet format.")
+
+    p_num = int(page.default if hasattr(page, "default") else page)
+    p_size = int(page_size.default if hasattr(page_size, "default") else page_size)
+    p_num = max(1, p_num)
+    p_size = max(1, min(500, p_size))
+
+    try:
+        if ext in ("xlsx", "xls"):
+            import openpyxl
+            try:
+                wb = openpyxl.load_workbook(target_path, read_only=True, data_only=True)
+            except Exception as load_err:
+                err_str = str(load_err).lower()
+                if "password" in err_str or "encrypted" in err_str:
+                    raise HTTPException(status_code=400, detail="The workbook is password protected or encrypted.")
+                raise HTTPException(status_code=400, detail=f"Could not open spreadsheet: {str(load_err)}")
+
+            sheet_names = wb.sheetnames
+            if not sheet_names:
+                wb.close()
+                return {
+                    "document_id": doc.id,
+                    "filename": doc.filename,
+                    "file_type": ext,
+                    "sheet_names": [],
+                    "active_sheet": "",
+                    "total_sheets": 0,
+                    "total_rows": 0,
+                    "total_columns": 0,
+                    "columns": [],
+                    "rows": [],
+                    "page": 1,
+                    "page_size": page_size,
+                    "total_pages": 0,
+                    "dimensions": "None"
+                }
+
+            active_sheet = sheet_name if sheet_name and sheet_name in sheet_names else sheet_names[0]
+            ws = wb[active_sheet]
+            dims = str(ws.dimensions) if hasattr(ws, "dimensions") else "Unknown"
+
+            all_rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+
+            if not all_rows:
+                return {
+                    "document_id": doc.id,
+                    "filename": doc.filename,
+                    "file_type": ext,
+                    "sheet_names": sheet_names,
+                    "active_sheet": active_sheet,
+                    "total_sheets": len(sheet_names),
+                    "total_rows": 0,
+                    "total_columns": 0,
+                    "columns": [],
+                    "rows": [],
+                    "page": 1,
+                    "page_size": page_size,
+                    "total_pages": 0,
+                    "dimensions": dims
+                }
+
+            # Header row
+            raw_header = all_rows[0]
+            columns = [
+                str(c).strip() if c is not None and str(c).strip() != "" else f"Column {i+1}"
+                for i, c in enumerate(raw_header)
+            ]
+            # Ensure unique column names
+            col_counts = {}
+            unique_cols = []
+            for col in columns:
+                if col in col_counts:
+                    col_counts[col] += 1
+                    unique_cols.append(f"{col}_{col_counts[col]}")
+                else:
+                    col_counts[col] = 0
+                    unique_cols.append(col)
+            columns = unique_cols
+
+            data_rows = all_rows[1:]
+            total_rows = len(data_rows)
+            total_cols = len(columns)
+            total_pages = max(1, (total_rows + p_size - 1) // p_size) if total_rows > 0 else 0
+
+            # Pagination slice
+            start_idx = (p_num - 1) * p_size
+            end_idx = start_idx + p_size
+            paged_data = data_rows[start_idx:end_idx]
+
+            # Sanitize cells to JSON-safe types
+            sanitized_rows = []
+            for row in paged_data:
+                clean_row = []
+                for cell in row[:total_cols]:
+                    if cell is None:
+                        clean_row.append("")
+                    elif isinstance(cell, (int, float, bool)):
+                        clean_row.append(cell)
+                    else:
+                        clean_row.append(str(cell))
+                while len(clean_row) < total_cols:
+                    clean_row.append("")
+                sanitized_rows.append(clean_row)
+
+            from openpyxl.utils import get_column_letter
+            if (not dims or dims in ["None", "Unknown"]) and total_cols > 0:
+                dims = f"A1:{get_column_letter(total_cols)}{total_rows + 1}"
+
+            return {
+                "document_id": doc.id,
+                "filename": doc.filename,
+                "file_type": ext,
+                "sheet_names": sheet_names,
+                "active_sheet": active_sheet,
+                "total_sheets": len(sheet_names),
+                "total_rows": total_rows,
+                "total_columns": total_cols,
+                "columns": columns,
+                "rows": sanitized_rows,
+                "page": p_num,
+                "page_size": p_size,
+                "total_pages": total_pages,
+                "dimensions": dims
+            }
+
+        elif ext == "csv":
+            import csv
+            with open(target_path, "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f)
+                all_rows = list(reader)
+
+            sheet_names = ["CSV Data"]
+            active_sheet = "CSV Data"
+            if not all_rows:
+                return {
+                    "document_id": doc.id,
+                    "filename": doc.filename,
+                    "file_type": "csv",
+                    "sheet_names": sheet_names,
+                    "active_sheet": active_sheet,
+                    "total_sheets": 1,
+                    "total_rows": 0,
+                    "total_columns": 0,
+                    "columns": [],
+                    "rows": [],
+                    "page": p_num,
+                    "page_size": p_size,
+                    "total_pages": 0,
+                    "dimensions": "None"
+                }
+
+            columns = [
+                str(c).strip() if c.strip() != "" else f"Column {i+1}"
+                for i, c in enumerate(all_rows[0])
+            ]
+            data_rows = all_rows[1:]
+            total_rows = len(data_rows)
+            total_cols = len(columns)
+            total_pages = max(1, (total_rows + p_size - 1) // p_size) if total_rows > 0 else 0
+
+            start_idx = (p_num - 1) * p_size
+            end_idx = start_idx + p_size
+            paged_data = data_rows[start_idx:end_idx]
+
+            sanitized_rows = []
+            for row in paged_data:
+                clean_row = list(row[:total_cols])
+                while len(clean_row) < total_cols:
+                    clean_row.append("")
+                sanitized_rows.append(clean_row)
+
+            return {
+                "document_id": doc.id,
+                "filename": doc.filename,
+                "file_type": "csv",
+                "sheet_names": sheet_names,
+                "active_sheet": active_sheet,
+                "total_sheets": 1,
+                "total_rows": total_rows,
+                "total_columns": total_cols,
+                "columns": columns,
+                "rows": sanitized_rows,
+                "page": p_num,
+                "page_size": p_size,
+                "total_pages": total_pages,
+                "dimensions": f"A1:{chr(64 + min(26, total_cols))}{total_rows + 1}"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading spreadsheet {doc_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse spreadsheet data: {str(e)}")
+
 @router.delete("/{doc_id}")
 async def delete_document(
     doc_id: str,

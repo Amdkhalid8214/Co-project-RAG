@@ -30,6 +30,7 @@ class ChatRequest(BaseModel):
     fusion_method: Optional[str] = settings.FUSION_METHOD
     alpha: Optional[float] = settings.FUSION_ALPHA
     router_mode: Optional[str] = settings.ROUTER_MODE
+    web_mode: Optional[bool] = False
 
 @router.post("")
 async def chat_endpoint(
@@ -42,11 +43,15 @@ async def chat_endpoint(
 
     user_id = current_user.id if current_user else None
 
+    from backend.llm.title_generator import generate_conversation_title
+    from backend.llm.router import is_weather_request
+    auto_title = generate_conversation_title(req.message)
+
     # 1. Get or create conversation with tenant ownership
     conv_id = req.conversation_id
     if not conv_id:
         new_conv = ConversationModel(
-            title=req.message[:35] + ("..." if len(req.message) > 35 else ""),
+            title=auto_title if auto_title != "New Chat" else (req.message[:35] + ("..." if len(req.message) > 35 else "")),
             user_id=user_id
         )
         db.add(new_conv)
@@ -59,13 +64,19 @@ async def chat_endpoint(
         if not conv:
             conv = ConversationModel(
                 id=conv_id,
-                title=req.message[:35] + ("..." if len(req.message) > 35 else ""),
+                title=auto_title if auto_title != "New Chat" else (req.message[:35] + ("..." if len(req.message) > 35 else "")),
                 user_id=user_id
             )
             db.add(conv)
             await db.commit()
         elif current_user and current_user.role != "admin" and conv.user_id and conv.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied: You do not own this conversation.")
+        else:
+            # Auto-update generic title on first meaningful user message
+            if not conv.title or conv.title.strip() in ("New Chat", "Untitled") or conv.title.strip().startswith("New Chat"):
+                if auto_title and auto_title != "New Chat":
+                    conv.title = auto_title
+                    await db.commit()
 
     # 2. Save user message to database
     user_msg = MessageModel(
@@ -84,8 +95,8 @@ async def chat_endpoint(
     )
     hist_result = await db.execute(stmt)
     all_msgs = hist_result.scalars().all()
-    # Format last 6 messages
-    history_dicts = [{"role": m.role, "content": m.content} for m in all_msgs[:-1][-6:]]
+    # Format last 6 messages with content and source citations
+    history_dicts = [{"role": m.role, "content": m.content, "citations": m.citations} for m in all_msgs[:-1][-6:]]
 
     # 4. Check if ready documents exist
     effective_doc_ids = None
@@ -136,17 +147,46 @@ async def chat_endpoint(
         has_documents = len(ready_docs) > 0
         effective_doc_ids = list(authorized_doc_ids) if has_documents else None
 
-    # 5. Route Query
-    router_instance = query_router
-    if req.router_mode and req.router_mode != settings.ROUTER_MODE:
-        from backend.llm.router import QueryRouter
-        router_instance = QueryRouter(mode=req.router_mode)
+    # 4b. Propagate active document context for Excel/spreadsheet tools ONLY if spreadsheet files exist
+    from backend.tools.excel_analyzer import active_excel_context
+    excel_docs = [
+        d for d in ready_docs
+        if (effective_doc_ids is None or d.id in effective_doc_ids) and (
+            getattr(d, "file_type", "").lower() in ("xlsx", "xls", "csv") or
+            (getattr(d, "filename", "") and getattr(d, "filename", "").lower().endswith((".xlsx", ".xls", ".csv")))
+        )
+    ]
+    if excel_docs:
+        active_excel_context.set({
+            "doc_ids": [d.id for d in excel_docs],
+            "doc_id": excel_docs[0].id,
+            "filename": excel_docs[0].filename,
+            "conversation_id": conv_id,
+            "has_spreadsheet": True,
+        })
+    else:
+        active_excel_context.set(None)
 
-    route, badge = await router_instance.route_query(
-        question=req.message,
-        has_documents=has_documents,
-        active_doc_ids=effective_doc_ids
-    )
+    # 5. Route Query (prioritizes Live Weather, supports explicit Real-Web Mode)
+    web_mode = bool(req.web_mode)
+    if is_weather_request(req.message):
+        route = "general"
+        badge = "⛅ Live Weather"
+    elif web_mode:
+        route = "web"
+        badge = "🌐 Live Web Search"
+    else:
+        router_instance = query_router
+        if req.router_mode and req.router_mode != settings.ROUTER_MODE:
+            from backend.llm.router import QueryRouter
+            router_instance = QueryRouter(mode=req.router_mode)
+
+        route, badge = await router_instance.route_query(
+            question=req.message,
+            has_documents=has_documents,
+            active_doc_ids=effective_doc_ids,
+            web_mode=bool(req.web_mode)
+        )
 
     # 6. Retrieve relevant chunks if route == "document"
     retrieved_chunks: List[Dict[str, Any]] = []
@@ -170,32 +210,47 @@ async def chat_endpoint(
     async def sse_event_stream():
         accumulated_text = []
         captured_citations = []
+        captured_weather = None
+        captured_excel_artifact = None
 
         async for sse_chunk in grounded_generator.stream_rag_response(
             question=req.message,
             route=route,
             router_badge=badge,
             retrieved_chunks=retrieved_chunks,
-            queries=queries
+            queries=queries,
+            web_mode=web_mode,
+            history=history_dicts
         ):
             # Intercept events for DB storage
             lines = sse_chunk.strip().split("\n")
-            event_type = ""
             for line in lines:
                 if line.startswith("event:"):
-                    event_type = line.replace("event:", "").strip()
-                elif line.startswith("data:") and event_type == "token":
-                    try:
-                        d = json.loads(line.replace("data:", "").strip())
-                        accumulated_text.append(d.get("content", ""))
-                    except Exception:
-                        pass
-                elif line.startswith("data:") and event_type == "citations":
-                    try:
-                        d = json.loads(line.replace("data:", "").strip())
-                        captured_citations = d.get("citations", [])
-                    except Exception:
-                        pass
+                    event_type = line[6:].strip()
+                elif line.startswith("data:"):
+                    payload_str = line[5:].strip()
+                    if event_type == "token":
+                        try:
+                            d = json.loads(payload_str)
+                            accumulated_text.append(d.get("content", ""))
+                        except Exception:
+                            pass
+                    elif event_type == "excel_artifact":
+                        try:
+                            captured_excel_artifact = json.loads(payload_str)
+                        except Exception as e:
+                            logger.error(f"Error parsing excel_artifact in chat.py: {e}")
+                    elif event_type == "weather":
+                        try:
+                            captured_weather = json.loads(payload_str)
+                        except Exception:
+                            pass
+                    elif event_type == "citations":
+                        try:
+                            d = json.loads(payload_str)
+                            captured_citations = d.get("citations", [])
+                        except Exception:
+                            pass
 
             yield sse_chunk
 
@@ -209,7 +264,9 @@ async def chat_endpoint(
                         role="assistant",
                         content=full_content,
                         router_badge=badge,
-                        citations=captured_citations
+                        citations=captured_citations,
+                        weather=captured_weather,
+                        excel_artifact=captured_excel_artifact
                     )
                     save_session.add(asst_msg)
                     await save_session.commit()

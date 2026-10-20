@@ -38,6 +38,12 @@ from langchain_ollama import ChatOllama
 
 from backend.config import settings
 from backend.tools.calculator import calculator_tool, safe_calculate
+from backend.tools.searxng_search import searxng_search_tool
+from backend.tools.excel_analyzer import excel_analyzer_tool, active_excel_context
+from backend.tools.excel_generator import excel_generator_tool, active_excel_artifact
+from backend.tools.weather import weather_tool, active_weather_data
+from backend.llm.memory import format_chat_history_for_llm
+from backend.llm.router import is_weather_request
 
 logger = logging.getLogger(__name__)
 
@@ -331,22 +337,30 @@ class LangChainAdapter:
         question: str,
         documents: List[Document],
         max_char_budget: Optional[int] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[List[BaseMessage], List[Dict[str, Any]]]:
         """
         Builds structured LangChain messages for grounded document QA (GROUNDED_SYSTEM_TEMPLATE + GROUNDED_HUMAN_TEMPLATE)
         and extracts the complete citations payload for PDF.js highlighting and validation.
+        Injects bounded prior conversational history between System and Human messages.
         """
         formatted_context, citations_payload = self.format_context_from_documents(
             documents=documents,
             max_char_budget=max_char_budget
         )
 
-        messages = self.grounded_prompt_template.format_messages(
+        base_messages = self.grounded_prompt_template.format_messages(
             context=formatted_context,
             question=question,
         )
 
-        logger.info("[LANGCHAIN] Grounded prompt constructed with SystemMessage and HumanMessage")
+        history_messages = format_chat_history_for_llm(history) if history else []
+        if history_messages and len(base_messages) >= 2:
+            messages = [base_messages[0]] + history_messages + [base_messages[1]]
+        else:
+            messages = base_messages
+
+        logger.info(f"[LANGCHAIN] Grounded prompt constructed with {len(messages)} messages (including {len(history_messages)} history turns)")
         return messages, citations_payload
 
     def build_verbatim_messages(
@@ -354,6 +368,7 @@ class LangChainAdapter:
         question: str,
         documents: List[Document],
         max_char_budget: Optional[int] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[List[BaseMessage], List[Dict[str, Any]]]:
         """
         Builds structured LangChain messages for verbatim / exact-text extraction
@@ -364,34 +379,48 @@ class LangChainAdapter:
             max_char_budget=max_char_budget
         )
 
-        messages = self.verbatim_prompt_template.format_messages(
+        base_messages = self.verbatim_prompt_template.format_messages(
             context=formatted_context,
             question=question,
         )
 
-        logger.info("[LANGCHAIN] Verbatim extraction prompt constructed with SystemMessage and HumanMessage")
+        history_messages = format_chat_history_for_llm(history) if history else []
+        if history_messages and len(base_messages) >= 2:
+            messages = [base_messages[0]] + history_messages + [base_messages[1]]
+        else:
+            messages = base_messages
+
+        logger.info(f"[LANGCHAIN] Verbatim extraction prompt constructed with {len(messages)} messages")
         return messages, citations_payload
 
     def build_general_messages(
         self,
         question: str,
         live_context: str = "",
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> List[BaseMessage]:
         """
         Builds LangChain messages for general real-world / conversational queries.
         Selects plain general template or web-augmented template based on context availability.
+        Injects bounded prior conversational history between System and Human messages.
         """
         if live_context:
-            messages = self.general_prompt_template_web.format_messages(
+            base_messages = self.general_prompt_template_web.format_messages(
                 live_context=live_context,
                 question=question,
             )
         else:
-            messages = self.general_prompt_template_plain.format_messages(
+            base_messages = self.general_prompt_template_plain.format_messages(
                 question=question,
             )
 
-        logger.info("[LANGCHAIN] General prompt constructed with SystemMessage and HumanMessage")
+        history_messages = format_chat_history_for_llm(history) if history else []
+        if history_messages and len(base_messages) >= 2:
+            messages = [base_messages[0]] + history_messages + [base_messages[1]]
+        else:
+            messages = base_messages
+
+        logger.info(f"[LANGCHAIN] General prompt constructed with {len(messages)} messages (including {len(history_messages)} history turns)")
         return messages
 
     def build_validation_messages(
@@ -585,12 +614,15 @@ class LangChainAdapter:
         current_messages = list(messages)
 
         try:
+            tools_executed = False
             for iteration in range(max_iterations):
                 ai_response = await llm_with_tools.ainvoke(current_messages)
                 tool_calls = getattr(ai_response, "tool_calls", None)
 
                 if not tool_calls:
-                    # Model provided final direct answer without tool call
+                    # Model provided direct answer without tool call
+                    if tools_executed:
+                        break
                     content = str(ai_response.content)
                     if content:
                         words = content.split(" ")
@@ -601,6 +633,7 @@ class LangChainAdapter:
 
                 logger.info(f"[LANGCHAIN] Tool call triggered at step {iteration + 1}: {tool_calls}")
                 current_messages.append(ai_response)
+                tools_executed = True
 
                 for tc in tool_calls:
                     t_name = tc.get("name")
@@ -623,6 +656,21 @@ class LangChainAdapter:
 
                     tool_msg = ToolMessage(content=result_str, tool_call_id=t_id, name=t_name)
                     current_messages.append(tool_msg)
+
+                # After web_search tool execution, add synthesis directive to ensure answer synthesis
+                if any(tc.get("name") == "web_search" for tc in tool_calls):
+                    current_messages.append(
+                        HumanMessage(
+                            content=(
+                                "Now synthesize a comprehensive, direct, and structured answer to the question using the research evidence above. "
+                                "Explain concepts, tutorials, or comparisons step-by-step with practical details and examples. "
+                                "Use inline citation markers [1], [2] to reference the sources, and conclude with a '### Sources' section "
+                                "with clickable markdown links: - [Title](URL). "
+                                "Do NOT merely return a list of search links or say 'Based on the search results, here are some links'. "
+                                "Do NOT echo, quote, or output these instructions, guidelines, or headings like 'DIRECT ANSWER:'. Start directly with the synthesized answer."
+                            )
+                        )
+                    )
 
             # Stream final response tokens from llm_plain given the complete tool trajectory
             async for chunk in llm_plain.astream(current_messages):
@@ -649,26 +697,55 @@ class LangChainAdapter:
         max_tokens: Optional[int] = None,
         prompt_type: str = "grounded_qa",
         tools: Optional[List[Any]] = None,
+        web_mode: bool = False,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[AsyncGenerator[str, None], List[Dict[str, Any]]]:
         """
         End-to-end grounded RAG orchestration with optional automatic tool calling:
         1. Chunks -> LangChain Documents
         2. Documents -> SystemMessage + HumanMessage Prompt (Grounded QA or Verbatim Extraction)
         3. Messages -> ChatOllama tool calling stream
+        When web_mode is False, web_search tool is strictly prevented from executing.
         Returns: (token_stream_generator, citations_payload)
         """
         documents = self.chunks_to_documents(chunks)
         if prompt_type == "verbatim_extraction":
-            messages, citations = self.build_verbatim_messages(question, documents)
+            messages, citations = self.build_verbatim_messages(question, documents, history=history)
             use_tools = None
         else:
-            messages, citations = self.build_grounded_messages(question, documents)
+            messages, citations = self.build_grounded_messages(question, documents, history=history)
             if tools is not None:
-                use_tools = tools
-            elif any(sym in question for sym in ("*", "+", "/", "-", "%", "^", "calculate", "multiply", "divide", "compute", "total", "sum", "average")):
-                use_tools = [calculator_tool]
+                use_tools = list(tools)
+                if not web_mode:
+                    use_tools = [t for t in use_tools if getattr(t, "name", "") != "web_search"]
             else:
-                use_tools = None
+                active_tools = []
+                # Check if spreadsheet context or spreadsheet analysis terms are present
+                excel_ctx = active_excel_context.get()
+                has_excel_spreadsheet = bool(excel_ctx and excel_ctx.get("has_spreadsheet")) or any(
+                    str(c.get("filename", "")).lower().endswith((".xlsx", ".xls", ".csv"))
+                    or "worksheet:" in str(c.get("text", "")).lower()
+                    for c in chunks
+                )
+                has_excel_terms = any(
+                    k in question.lower()
+                    for k in (
+                        "excel", "sheet", "row", "column", "table", "sales", "target",
+                        "department", "highest", "lowest", "total", "average", "mean",
+                        "sum", "max", "min", "count", "group", "filter", "spreadsheet", "workbook"
+                    )
+                )
+                if has_excel_spreadsheet and (has_excel_terms or not any(str(c.get("filename", "")).lower().endswith(".pdf") for c in chunks)):
+                    active_tools.append(excel_analyzer_tool)
+
+                has_math = any(sym in question for sym in ("*", "+", "/", "-", "%", "^", "calculate", "multiply", "divide", "compute", "total", "sum", "average"))
+                if has_math and calculator_tool not in active_tools:
+                    active_tools.append(calculator_tool)
+                if is_weather_request(question) and weather_tool not in active_tools:
+                    active_tools.append(weather_tool)
+                if web_mode and not is_weather_request(question):
+                    active_tools.append(searxng_search_tool)
+                use_tools = active_tools if active_tools else None
 
         async def token_generator():
             async for token in self.stream_chat_with_tools(
@@ -688,13 +765,47 @@ class LangChainAdapter:
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tools: Optional[List[Any]] = None,
+        web_mode: bool = False,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Streams response for conversational / real-world queries via LangChain with automatic tool support.
+        When web_mode is True, searxng_search_tool is enabled for the model to retrieve live information.
+        When web_mode is False, web search is strictly disabled.
+        Weather queries prioritize the weather tool and prevent fallback to search snippets.
         """
+        is_weather = is_weather_request(question)
         if tools is None:
-            tools = [calculator_tool]
-        messages = self.build_general_messages(question, live_context=live_context)
+            default_tools = [calculator_tool, weather_tool]
+            excel_ctx = active_excel_context.get()
+            if excel_ctx and excel_ctx.get("has_spreadsheet"):
+                has_excel_terms = any(
+                    k in question.lower()
+                    for k in (
+                        "excel", "sheet", "row", "column", "table", "sales", "target",
+                        "department", "highest", "lowest", "total", "average", "mean",
+                        "sum", "max", "min", "count", "group", "filter", "spreadsheet", "workbook"
+                    )
+                )
+                if has_excel_terms:
+                    default_tools.append(excel_analyzer_tool)
+            default_tools.append(excel_generator_tool)
+            if web_mode and not is_weather:
+                default_tools.append(searxng_search_tool)
+            tools = default_tools
+        else:
+            tools = list(tools)
+            if weather_tool not in tools:
+                tools.append(weather_tool)
+            if excel_generator_tool not in tools:
+                tools.append(excel_generator_tool)
+            excel_ctx = active_excel_context.get()
+            if excel_ctx and excel_ctx.get("has_spreadsheet") and excel_analyzer_tool not in tools:
+                tools.append(excel_analyzer_tool)
+            if not web_mode or is_weather:
+                tools = [t for t in tools if getattr(t, "name", "") != "web_search"]
+
+        messages = self.build_general_messages(question, live_context=live_context, history=history)
         async for token in self.stream_chat_with_tools(
             messages,
             tools=tools,

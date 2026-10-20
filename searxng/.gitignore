@@ -1,0 +1,20 @@
+# ==============================================================================
+# SearXNG Local Git Exclusion
+# ==============================================================================
+
+# Active environment secrets
+.env
+.env.local
+*.env
+
+# Keep template tracked
+!.env.example
+
+# Local volume mounts or export directories
+core-data/
+valkey-data/
+
+# Logs and OS temporary files
+*.log
+.DS_Store
+Thumbs.db

@@ -72,6 +72,8 @@ class MessageModel(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     router_badge: Mapped[Optional[str]] = mapped_column(String(64), nullable=True) # "General answer" | "From document"
     citations: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    weather: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
+    excel_artifact: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
 
     conversation: Mapped["ConversationModel"] = relationship("ConversationModel", back_populates="messages")
@@ -84,6 +86,8 @@ class MessageModel(Base):
             "content": self.content,
             "router_badge": self.router_badge,
             "citations": self.citations or [],
+            "weather": self.weather,
+            "excel_artifact": self.excel_artifact,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

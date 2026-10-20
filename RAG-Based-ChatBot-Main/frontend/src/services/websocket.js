@@ -14,6 +14,9 @@ export class ChatWebSocketClient {
       start: [],
       token: [],
       citations: [],
+      weather: [],
+      excel_artifact: [],
+      conversation_renamed: [],
       complete: [],
       error: [],
       close: [],
@@ -61,9 +64,10 @@ export class ChatWebSocketClient {
   }
 
   on(event, callback) {
-    if (this.handlers[event]) {
-      this.handlers[event].push(callback);
+    if (!this.handlers[event]) {
+      this.handlers[event] = [];
     }
+    this.handlers[event].push(callback);
     return () => {
       this.off(event, callback);
     };

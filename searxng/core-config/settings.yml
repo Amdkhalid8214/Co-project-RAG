@@ -1,0 +1,35 @@
+# ==============================================================================
+# SearXNG Local Configuration
+# Official Documentation: https://docs.searxng.org/admin/settings/index.html
+# ==============================================================================
+
+# Inherit and merge with SearXNG default engine and plugin settings
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "SearXNG Local Search"
+
+server:
+  # Base URL and Secret Key are injected via environment variables:
+  # - SEARXNG_BASE_URL (http://localhost:8080/)
+  # - SEARXNG_SECRET (generated cryptographic secret)
+  port: 8080
+  bind_address: "0.0.0.0"
+  # Disable rate limiter for local AI backend / DocuChat tool calling
+  limiter: false
+  # Enable image proxy for privacy and clean media rendering
+  image_proxy: true
+  method: "GET"
+
+search:
+  safe_search: 0
+  autocomplete: "duckduckgo"
+  # Enable JSON format for Python backend / DocuChat integration
+  formats:
+    - html
+    - json
+
+# Connect to Valkey container service for caching engine results
+valkey:
+  url: valkey://searxng-valkey:6379/0

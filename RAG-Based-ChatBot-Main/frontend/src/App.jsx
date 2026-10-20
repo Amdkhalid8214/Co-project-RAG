@@ -183,7 +183,19 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem("docuchat_token");
     chatWs.connect(token);
+
+    const unregGlobalRename = chatWs.on("conversation_renamed", (data) => {
+      if (data?.conversation_id && data?.title) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === data.conversation_id ? { ...c, title: data.title } : c
+          )
+        );
+      }
+    });
+
     return () => {
+      unregGlobalRename();
       chatWs.disconnect();
     };
   }, [currentUser]);
@@ -358,6 +370,18 @@ export default function App() {
     if (activeConvId === convId) {
       setActiveConvId(null);
       setMessages([]);
+    }
+  };
+
+  const handleRenameConversation = async (convId, newTitle) => {
+    if (!newTitle || !newTitle.trim()) return;
+    try {
+      await api.updateConversation(convId, newTitle.trim());
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convId ? { ...c, title: newTitle.trim() } : c))
+      );
+    } catch (e) {
+      console.warn("Could not rename conversation:", e);
     }
   };
 
@@ -544,23 +568,42 @@ export default function App() {
   };
 
   // Citation click handler: jumps side viewer to page & highlights evidence
-  const handleCitationClick = (sourceIndex, citation) => {
+  const handleCitationClick = (sourceIndexOrCite, citation) => {
     let targetCite = citation;
+    let sourceIndex = sourceIndexOrCite;
 
-    // If citation was not passed directly (e.g. from inline pill), look up by sourceIndex
+    // Handle polymorphic call: handleCitationClick(cite) or handleCitationClick(sourceIndex, cite)
+    if (sourceIndexOrCite && typeof sourceIndexOrCite === "object") {
+      targetCite = sourceIndexOrCite;
+      sourceIndex = targetCite.source_index;
+    }
+
+    // If citation was not passed directly (e.g. from inline pill without cite obj), look up by sourceIndex
     if (!targetCite) {
       const lastAsst = [...messages].reverse().find(m => m.role === "assistant" && m.citations && m.citations.length > 0);
       const candidates = lastAsst ? lastAsst.citations : [];
-      targetCite = candidates.find(c => c.source_index === sourceIndex) || candidates[0];
+      targetCite = candidates.find(c => Number(c.source_index) === Number(sourceIndex)) || candidates[0];
     }
     if (!targetCite) return;
+
+    // Handle web citations (open verified URL in new tab)
+    if (targetCite.type === "web" || targetCite.url) {
+      if (targetCite.url) {
+        window.open(targetCite.url, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
 
     // 1. Resolve & activate the document so SideDocumentViewer is guaranteed to show
     const targetDocId = targetCite.doc_id || targetCite.document_id;
     const targetDocName = targetCite.filename || targetCite.doc_name;
     let docToActivate = activeDoc;
 
-    if (!docToActivate || (targetDocId && docToActivate.id !== targetDocId)) {
+    if (
+      !docToActivate ||
+      (targetDocId && docToActivate.id !== targetDocId) ||
+      (targetDocName && docToActivate.filename !== targetDocName)
+    ) {
       const match = documents.find(
         (d) => (targetDocId && d.id === targetDocId) || (targetDocName && d.filename === targetDocName)
       );
@@ -581,7 +624,7 @@ export default function App() {
     }
 
     // 2. Jump to the exact target page of this citation
-    const targetPage = Number(targetCite.page || targetCite.page_number || 1);
+    const targetPage = Math.max(1, Number(targetCite.page || targetCite.page_number || 1));
     setCurrentPage(targetPage);
 
     // 3. Keep all generated answer highlights active across all pages (no need to click evidence to see highlights)
@@ -619,13 +662,15 @@ export default function App() {
       content: text,
       created_at: new Date().toISOString()
     };
+    const isWeatherQuery = /\b(weather|temperature|forecast|rainfall|umbrella|humidity|wind\s+speed|precipitat|how\s+(?:hot|cold|warm)|is\s+it\s+(?:raining|sunny|cloudy|snowing)|rain\s+in|snow\s+in)\b/i.test(text);
     const tempAsstId = `asst_${Date.now()}`;
     const tempAsstMsg = {
       id: tempAsstId,
       role: "assistant",
       content: "",
-      router_badge: webMode ? "🌐 Live Web Search" : null,
+      router_badge: isWeatherQuery ? "⛅ Live Weather" : (webMode ? "🌐 Live Web Search" : null),
       citations: [],
+      weather: null,
       created_at: new Date().toISOString()
     };
 
@@ -678,6 +723,36 @@ export default function App() {
       setMessages((prev) =>
         prev.map((m) => (m.id === tempAsstId ? { ...m, router_badge: data.router_badge } : m))
       );
+    });
+
+    const unregWeather = chatWs.on("weather", (data) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempAsstId
+            ? { ...m, weather: data, router_badge: "⛅ Live Weather" }
+            : m
+        )
+      );
+    });
+
+    const unregExcel = chatWs.on("excel_artifact", (data) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempAsstId
+            ? { ...m, excel_artifact: data, router_badge: "📊 Excel Generator" }
+            : m
+        )
+      );
+    });
+
+    const unregRenamed = chatWs.on("conversation_renamed", (data) => {
+      if (data?.conversation_id && data?.title) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === data.conversation_id ? { ...c, title: data.title } : c
+          )
+        );
+      }
     });
 
     const unregCitations = chatWs.on("citations", (data) => {
@@ -765,6 +840,9 @@ export default function App() {
       clearTimeout(safetyTimer);
       unregToken();
       unregStart();
+      unregWeather();
+      unregExcel();
+      unregRenamed();
       unregCitations();
       unregComplete();
       unregError();
@@ -829,6 +907,7 @@ export default function App() {
           onSelectConversation={selectConversation}
           onNewConversation={handleNewConversation}
           onDeleteConversation={handleDeleteConversation}
+          onRenameConversation={handleRenameConversation}
           onOpenHistory={() => setHistoryOpen(true)}
           onOpenProjects={() => setProjectsOpen(true)}
           documents={documents}
@@ -1008,6 +1087,7 @@ export default function App() {
         activeConvId={activeConvId}
         onSelectConversation={selectConversation}
         onDeleteConversation={handleDeleteConversation}
+        onRenameConversation={handleRenameConversation}
         onNewConversation={handleNewConversation}
         onClearAllConversations={handleClearAllConversations}
       />

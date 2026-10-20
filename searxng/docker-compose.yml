@@ -1,0 +1,55 @@
+# ==============================================================================
+# SearXNG Local Web-Search Service - Docker Compose Configuration
+# Official Documentation: https://docs.searxng.org/admin/installation-docker.html
+# ==============================================================================
+
+name: searxng
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. SearXNG Core Service
+  # ----------------------------------------------------------------------------
+  core:
+    container_name: searxng-core
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      # Bound strictly to 127.0.0.1 (localhost) to prevent exposure to the public network
+      - "${SEARXNG_HOST:-127.0.0.1}:${SEARXNG_PORT:-8080}:8080"
+    env_file:
+      - .env
+    volumes:
+      # Custom settings mount
+      - ./core-config/:/etc/searxng/:rw
+      # Persistent cache directory (e.g. favicons, temporary search caches)
+      - core-data:/var/cache/searxng/
+    depends_on:
+      valkey:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------------------------------------------
+  # 2. Valkey Caching Service (Official Redis-compatible backend)
+  # ----------------------------------------------------------------------------
+  valkey:
+    container_name: searxng-valkey
+    image: docker.io/valkey/valkey:9-alpine
+    command: valkey-server --save 300 1 --save 60 1000 --loglevel warning
+    restart: unless-stopped
+    volumes:
+      - valkey-data:/data/
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  core-data:
+    name: searxng_core_data
+  valkey-data:
+    name: searxng_valkey_data

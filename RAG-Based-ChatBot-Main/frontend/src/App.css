@@ -2137,12 +2137,185 @@ body {
   box-shadow: 0 0 16px rgba(245, 158, 11, 0.6);
 }
 
-.canvas-evidence-float-badge,
-.citations-stack,
-.citation-evidence-card-row,
-.citation-pill-group,
-.citation-pill {
+.canvas-evidence-float-badge {
   display: none !important;
+}
+
+/* ==========================================================
+   Restored Citation Evidence Cards & Inline Pills
+   ========================================================== */
+.inline-citations-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  vertical-align: baseline;
+  margin: 0 2px;
+}
+
+.inline-citation-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  font-family: inherit;
+}
+
+.inline-citation-pill:hover {
+  background-color: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+}
+
+.citations-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  width: 100%;
+}
+
+.citation-card-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 16px;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  text-decoration: none;
+}
+
+.citation-card-item:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.citation-card-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.citation-doc-icon {
+  color: #2563eb;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.citation-source-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  flex-shrink: 0;
+}
+
+.citation-doc-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 450px;
+}
+
+.citation-separator {
+  color: #94a3b8;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.citation-page-num {
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.citation-chevron {
+  font-size: 16px;
+  line-height: 1;
+  color: #94a3b8;
+  margin-left: 12px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.citation-card-item:hover .citation-chevron {
+  color: #475569;
+  transform: translateX(2px);
+}
+
+/* Dark Mode Citation Styles */
+[data-theme="dark"] .inline-citation-pill {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+[data-theme="dark"] .inline-citation-pill:hover {
+  background-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .citation-card-item {
+  background-color: #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .citation-card-item:hover {
+  background-color: #262626;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="dark"] .citation-doc-icon {
+  color: #60a5fa;
+}
+
+[data-theme="dark"] .citation-source-num,
+[data-theme="dark"] .citation-doc-name {
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .citation-separator {
+  color: #64748b;
+}
+
+[data-theme="dark"] .citation-page-num {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .citation-chevron {
+  color: #64748b;
+}
+
+[data-theme="dark"] .citation-card-item:hover .citation-chevron {
+  color: #cbd5e1;
 }
 
 /* Loading Overlay */
@@ -5994,4 +6167,425 @@ input:checked+.slider:before {
   background-color: #ffffff;
   border: 1px solid #e5e7eb;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12);
+}
+
+/* ==========================================================
+   Spreadsheet / Excel Interactive Viewer Styles
+   ========================================================== */
+
+.spreadsheet-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--bg-viewer);
+  overflow: hidden;
+}
+
+.spreadsheet-top-toolbar {
+  gap: 10px;
+}
+
+.spreadsheet-icon-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  flex-shrink: 0;
+}
+
+.spreadsheet-format-tag {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.spreadsheet-dim-tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.spreadsheet-meta-divider {
+  margin: 0 2px;
+  color: var(--border-medium);
+}
+
+.spreadsheet-center-controls {
+  flex: 1;
+  max-width: 320px;
+}
+
+.spreadsheet-search-box {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 4px 8px;
+  width: 100%;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.spreadsheet-search-box:focus-within {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
+}
+
+.spreadsheet-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--text-main);
+  width: 100%;
+}
+
+.spreadsheet-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.spreadsheet-search-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+.spreadsheet-search-clear:hover {
+  color: var(--text-main);
+}
+
+/* Worksheet Tabs Bar */
+.spreadsheet-sheet-tabs-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-subtle);
+  height: 36px;
+  flex-shrink: 0;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.spreadsheet-tabs-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.spreadsheet-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.spreadsheet-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.spreadsheet-tab-btn:hover {
+  background-color: var(--bg-sidebar-hover);
+  color: var(--text-main);
+}
+
+.spreadsheet-tab-btn.active {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.35);
+  font-weight: 600;
+}
+
+/* Table Scrollable Stage */
+.spreadsheet-table-stage {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background-color: var(--bg-viewer);
+}
+
+.spreadsheet-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #ffffff;
+  font-size: 13px;
+  z-index: 50;
+}
+
+.spreadsheet-table-wrapper {
+  min-width: 100%;
+  display: inline-block;
+  padding: 12px;
+}
+
+.spreadsheet-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
+  min-width: 100%;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Corner Header Cell */
+.spreadsheet-corner-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 25;
+  background-color: var(--bg-card-subtle);
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 8px 6px;
+  border-bottom: 2px solid var(--border-medium);
+  border-right: 1px solid var(--border-subtle);
+}
+
+/* Column Header Cells */
+.spreadsheet-col-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--bg-card-subtle);
+  text-align: left;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  border-bottom: 2px solid var(--border-medium);
+  border-right: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.spreadsheet-col-header .col-letter {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 1px;
+  font-family: var(--font-mono);
+}
+
+.spreadsheet-col-header .col-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* Row Numbers */
+.spreadsheet-row-number {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: var(--bg-card-subtle);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
+}
+
+/* Regular Data Cells */
+.spreadsheet-row:hover .spreadsheet-cell {
+  background-color: var(--bg-sidebar-hover);
+}
+
+.spreadsheet-row:hover .spreadsheet-row-number {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.spreadsheet-cell {
+  padding: 7px 12px;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-main);
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background-color: var(--bg-card);
+  transition: background-color 0.1s ease;
+}
+
+.spreadsheet-cell.cell-numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.spreadsheet-cell-empty {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.spreadsheet-no-match-cell {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Empty Sheet State */
+.spreadsheet-empty-sheet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  gap: 10px;
+}
+
+.spreadsheet-empty-icon {
+  font-size: 36px;
+  margin-bottom: 4px;
+}
+
+.spreadsheet-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.spreadsheet-empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 320px;
+}
+
+/* Footer / Pagination Bar */
+.spreadsheet-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background-color: var(--bg-card);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.spreadsheet-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spreadsheet-filter-active-pill {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.spreadsheet-footer-pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spreadsheet-page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.spreadsheet-page-size-selector select {
+  background-color: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-main);
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.spreadsheet-pagination-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-page-nav {
+  background-color: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-page-nav:hover:not(:disabled) {
+  background-color: var(--bg-sidebar-hover);
+  border-color: var(--border-medium);
+}
+
+.btn-page-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.spreadsheet-page-indicator {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }

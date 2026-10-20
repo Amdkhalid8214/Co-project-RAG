@@ -69,11 +69,15 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
             alpha = msg_payload.get("alpha", settings.FUSION_ALPHA)
             request_id = msg_payload.get("request_id", str(uuid.uuid4()))
 
+            from backend.llm.title_generator import generate_conversation_title
+            from backend.llm.router import is_weather_request
+            auto_title = generate_conversation_title(message)
+
             async with AsyncSessionLocal() as db:
                 # 1. Get or create conversation with tenant ownership
                 if not conversation_id:
                     new_conv = ConversationModel(
-                        title=message[:35] + ("..." if len(message) > 35 else ""),
+                        title=auto_title if auto_title != "New Chat" else (message[:35] + ("..." if len(message) > 35 else "")),
                         user_id=user_id
                     )
                     db.add(new_conv)
@@ -85,16 +89,29 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                     conv = conv_res.scalar_one_or_none()
                     if not conv or (conv.user_id and user_id and conv.user_id != user_id):
                         new_conv = ConversationModel(
-                            title=message[:35] + ("..." if len(message) > 35 else ""),
+                            title=auto_title if auto_title != "New Chat" else (message[:35] + ("..." if len(message) > 35 else "")),
                             user_id=user_id
                         )
                         db.add(new_conv)
                         await db.commit()
                         await db.refresh(new_conv)
                         conversation_id = new_conv.id
-                    elif not conv.user_id and user_id:
-                        conv.user_id = user_id
-                        await db.commit()
+                    else:
+                        if not conv.user_id and user_id:
+                            conv.user_id = user_id
+                        # Auto-update generic title on first meaningful message
+                        if not conv.title or conv.title.strip() in ("New Chat", "Untitled") or conv.title.strip().startswith("New Chat"):
+                            if auto_title and auto_title != "New Chat":
+                                conv.title = auto_title
+                                await db.commit()
+                                # Notify frontend immediately so sidebar updates without page refresh
+                                await websocket.send_json({
+                                    "event": "conversation_renamed",
+                                    "data": {
+                                        "conversation_id": conversation_id,
+                                        "title": auto_title
+                                    }
+                                })
 
                 # 2. Save user message
                 user_msg = MessageModel(
@@ -112,7 +129,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                     .order_by(MessageModel.created_at.asc())
                 )
                 all_msgs = hist_res.scalars().all()
-                history_dicts = [{"role": m.role, "content": m.content} for m in all_msgs[:-1][-6:]]
+                history_dicts = [{"role": m.role, "content": m.content, "citations": m.citations} for m in all_msgs[:-1][-6:]]
 
                 # 4. Check ready documents
                 effective_doc_ids = None
@@ -173,17 +190,34 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                     has_documents = len(ready_docs) > 0
                     effective_doc_ids = list(authorized_doc_ids) if has_documents else None
 
-            # 5. Route query (supports explicit Real-Web Mode)
-            web_mode = msg_payload.get("web_mode", False)
-            if web_mode:
-                route = "web"
-                badge = "🌐 Live Web Search"
-            else:
-                route, badge = await query_router.route_query(
-                    question=message,
-                    has_documents=has_documents,
-                    active_doc_ids=effective_doc_ids
+            # 4b. Propagate active document context for Excel/spreadsheet tools ONLY if spreadsheet files exist
+            from backend.tools.excel_analyzer import active_excel_context
+            excel_docs = [
+                d for d in ready_docs
+                if (effective_doc_ids is None or d.id in effective_doc_ids) and (
+                    getattr(d, "file_type", "").lower() in ("xlsx", "xls", "csv") or
+                    (getattr(d, "filename", "") and getattr(d, "filename", "").lower().endswith((".xlsx", ".xls", ".csv")))
                 )
+            ]
+            if excel_docs:
+                active_excel_context.set({
+                    "doc_ids": [d.id for d in excel_docs],
+                    "doc_id": excel_docs[0].id,
+                    "filename": excel_docs[0].filename,
+                    "conversation_id": conversation_id,
+                    "has_spreadsheet": True,
+                })
+            else:
+                active_excel_context.set(None)
+
+            # 5. Route query (prioritizes Live Weather, supports explicit Real-Web Mode)
+            web_mode = bool(msg_payload.get("web_mode", False))
+            route, badge = await query_router.route_query(
+                question=message,
+                has_documents=has_documents,
+                active_doc_ids=effective_doc_ids,
+                web_mode=web_mode
+            )
 
             # Send 'start' event
             await websocket.send_json({
@@ -220,6 +254,8 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
             # 7. Incremental token streaming
             accumulated_tokens = []
             captured_citations = []
+            captured_weather = None
+            captured_excel_artifact = None
 
             try:
                 async for sse_chunk in grounded_generator.stream_rag_response(
@@ -227,14 +263,16 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                     route=route,
                     router_badge=badge,
                     retrieved_chunks=retrieved_chunks,
-                    queries=queries
+                    queries=queries,
+                    web_mode=web_mode,
+                    history=history_dicts
                 ):
                     # Parse internal SSE chunks into structured WebSocket messages
                     for line in sse_chunk.strip().split("\n"):
                         if line.startswith("event:"):
-                            evt_type = line.replace("event:", "").strip()
+                            evt_type = line[6:].strip()
                         elif line.startswith("data:"):
-                            payload_str = line.replace("data:", "").strip()
+                            payload_str = line[5:].strip()
                             try:
                                 d = json.loads(payload_str)
                                 if evt_type == "token":
@@ -245,6 +283,20 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                                         "request_id": request_id,
                                         "data": {"content": token_content}
                                     })
+                                elif evt_type == "excel_artifact":
+                                    captured_excel_artifact = d
+                                    await websocket.send_json({
+                                        "event": "excel_artifact",
+                                        "request_id": request_id,
+                                        "data": captured_excel_artifact
+                                    })
+                                elif evt_type == "weather":
+                                    captured_weather = d
+                                    await websocket.send_json({
+                                        "event": "weather",
+                                        "request_id": request_id,
+                                        "data": captured_weather
+                                    })
                                 elif evt_type == "citations":
                                     captured_citations = d.get("citations", [])
                                     await websocket.send_json({
@@ -252,8 +304,8 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                                         "request_id": request_id,
                                         "data": {"citations": captured_citations}
                                     })
-                            except Exception:
-                                pass
+                            except Exception as ex:
+                                logger.error(f"[WS Chat] Error parsing SSE payload for '{evt_type}': {ex}")
 
                 # 8. Persist completed assistant message
                 full_reply = "".join(accumulated_tokens).strip()
@@ -264,7 +316,9 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                             role="assistant",
                             content=full_reply,
                             router_badge=badge,
-                            citations=captured_citations
+                            citations=captured_citations,
+                            weather=captured_weather,
+                            excel_artifact=captured_excel_artifact
                         )
                         save_db.add(asst_msg)
                         await save_db.commit()

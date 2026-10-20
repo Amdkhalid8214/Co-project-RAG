@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useCallback, useState } from "react";
+import SpreadsheetViewer from "./SpreadsheetViewer";
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:5000/api";
 
-export default function SideDocumentViewer({
+function PdfDocumentViewer({
   document: doc,
   currentPage = 1,
   setCurrentPage,
@@ -114,7 +115,7 @@ export default function SideDocumentViewer({
       }
 
       const ext = (doc.file_type || doc.filename?.split(".").pop() || "").toLowerCase();
-      const isTextFile = ["txt", "md", "csv", "html", "htm", "json"].includes(ext);
+      const isTextFile = ["txt", "md", "html", "htm", "json"].includes(ext);
 
       try {
         const token = localStorage.getItem("docuchat_token");
@@ -791,4 +792,146 @@ export default function SideDocumentViewer({
       </div>
     </aside>
   );
+}
+
+function UnsupportedViewer({
+  document: doc,
+  ext,
+  viewMode,
+  onToggleMaximize,
+  onCloseViewer,
+  onToggleSplitView
+}) {
+  const docTitle = doc?.filename || "Document";
+  const docId = doc?.id;
+
+  const handleDownloadOriginal = () => {
+    if (!docId) return;
+    const token = localStorage.getItem("docuchat_token");
+    const authQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+    window.open(`${API_BASE}/documents/${docId}/file${authQuery}`, "_blank");
+  };
+
+  return (
+    <aside className="chatgpt-side-document-panel">
+      <div className="doc-viewer-top-toolbar">
+        <div className="doc-toolbar-left-meta">
+          <div className="doc-file-type-icon" title="Unsupported file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+          </div>
+          <div className="doc-title-stack">
+            <span className="doc-toolbar-filename" title={docTitle}>
+              {docTitle}
+            </span>
+            <span className="doc-toolbar-pagesub">Unsupported format</span>
+          </div>
+        </div>
+
+        <div className="doc-toolbar-right-controls">
+          <button
+            className={`btn-toolbar-icon ${viewMode === "document" ? "btn-active" : ""}`}
+            onClick={onToggleMaximize}
+            title={viewMode === "document" ? "Restore Split View" : "Maximize Document Viewer"}
+          >
+            {viewMode === "document" ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            )}
+          </button>
+          <button
+            className="btn-toolbar-icon btn-toolbar-close"
+            onClick={onCloseViewer || onToggleSplitView}
+            title="Close Document Viewer"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="doc-viewer-scrollable-stage">
+        <div className="doc-empty-state-card">
+          <div className="doc-error-block">
+            <div className="doc-error-icon">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <h4 className="doc-error-title">Preview not available for this file type</h4>
+            <p className="doc-error-desc">
+              Visual preview is not supported for <strong>.{ext || "unknown"}</strong> files. You can still ask questions about its content in chat, or download the original file to view it locally.
+            </p>
+            <div className="doc-error-meta-box">
+              <div className="doc-meta-row">
+                <span className="doc-meta-label">File:</span>
+                <span className="doc-meta-val">{docTitle}</span>
+              </div>
+              <div className="doc-meta-row">
+                <span className="doc-meta-label">Format:</span>
+                <span className="doc-meta-val">{(ext || "unknown").toUpperCase()}</span>
+              </div>
+              {doc?.status && (
+                <div className="doc-meta-row">
+                  <span className="doc-meta-label">Status:</span>
+                  <span className="doc-meta-val status-badge-inline">{doc.status}</span>
+                </div>
+              )}
+            </div>
+            <div className="doc-error-actions">
+              <button className="btn-download-orig" onClick={handleDownloadOriginal}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Download Original File
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+const SUPPORTED_SPREADSHEET_EXTS = ["xlsx", "xls", "csv"];
+const SUPPORTED_TEXT_EXTS = ["txt", "md", "html", "htm", "json", "py", "js", "log", "xml", "yaml", "yml"];
+
+export default function SideDocumentViewer(props) {
+  const { document: doc } = props;
+  const ext = (doc?.file_type || doc?.filename?.split(".").pop() || "").toLowerCase();
+
+  // Route 1: Spreadsheets (Excel .xlsx, .xls, .csv)
+  if (SUPPORTED_SPREADSHEET_EXTS.includes(ext)) {
+    return <SpreadsheetViewer {...props} />;
+  }
+
+  // Route 2: PDF or plain text
+  const isPdf = ext === "pdf" || (!ext && !SUPPORTED_TEXT_EXTS.includes(ext));
+  const isText = SUPPORTED_TEXT_EXTS.includes(ext);
+
+  if (isPdf || isText) {
+    return <PdfDocumentViewer {...props} />;
+  }
+
+  // Route 3: Unsupported format notice
+  return <UnsupportedViewer {...props} ext={ext} />;
 }

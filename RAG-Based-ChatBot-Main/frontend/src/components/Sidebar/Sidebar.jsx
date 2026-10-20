@@ -14,6 +14,7 @@ export default function Sidebar({
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
+  onRenameConversation,
   onOpenHistory,
   onOpenProjects,
   documents = [],
@@ -306,18 +307,34 @@ export default function Sidebar({
                       {conv.updated_at ? "Recently" : "2 minutes ago"}
                     </span>
                   </div>
-                  <button
-                    className="btn-chat-item-delete"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm(`Delete conversation "${conv.title}"?`)) {
-                        onDeleteConversation && onDeleteConversation(conv.id);
-                      }
-                    }}
-                    title="Delete"
-                  >
-                    ✕
-                  </button>
+                  <div className="chat-item-actions-group" style={{ display: 'flex', alignItems: 'center' }}>
+                    <button
+                      className="btn-chat-item-rename"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newTitle = window.prompt("Rename conversation:", conv.title || "New Chat");
+                        if (newTitle && newTitle.trim() && newTitle.trim() !== conv.title) {
+                          onRenameConversation && onRenameConversation(conv.id, newTitle.trim());
+                        }
+                      }}
+                      title="Rename conversation"
+                      style={{ background: 'none', border: 'none', color: 'inherit', opacity: 0.6, cursor: 'pointer', padding: '2px 4px', fontSize: '12px' }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      className="btn-chat-item-delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete conversation "${conv.title}"?`)) {
+                          onDeleteConversation && onDeleteConversation(conv.id);
+                        }
+                      }}
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               );
             })

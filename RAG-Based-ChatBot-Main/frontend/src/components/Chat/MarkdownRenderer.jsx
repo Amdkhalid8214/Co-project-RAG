@@ -18,11 +18,43 @@ function renderInline(text, citations, onCitationClick) {
   return parts.map((part, idx) => {
     if (!part) return null;
 
-    // 1. Suppress Citation Pills and Evidence Numbers [1], [2], [1, 2]
+    // 1. Inline Citation Markers [1], [2], [1, 2]
     const citeMatch = part.match(/^\[(\d+(?:,\s*\d+)*)\]$/);
     if (citeMatch) {
-      // Do not display inline evidence pills, buttons, or bracket numbers in chat UI
-      return null;
+      const numbers = citeMatch[1]
+        .split(",")
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n));
+
+      return (
+        <span key={idx} className="inline-citations-wrapper">
+          {numbers.map((num, nIdx) => {
+            const matchedCite = Array.isArray(citations)
+              ? citations.find((c) => Number(c.source_index) === num)
+              : null;
+            return (
+              <button
+                key={nIdx}
+                type="button"
+                className="inline-citation-pill"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onCitationClick) {
+                    onCitationClick(num, matchedCite);
+                  }
+                }}
+                title={
+                  matchedCite
+                    ? `${matchedCite.filename || "Document"} • Page ${matchedCite.page || matchedCite.page_number || 1}`
+                    : `Source [${num}]`
+                }
+              >
+                [{num}]
+              </button>
+            );
+          })}
+        </span>
+      );
     }
 
     // 2. Bold Text **bold** or __bold__
@@ -331,6 +363,24 @@ export default function MarkdownRenderer({ content, citations, onCitationClick }
 
   const blocks = parseMarkdownBlocks(content);
 
+  // Filter and deduplicate genuine citations
+  const seenCites = new Set();
+  const validCitations = (Array.isArray(citations) ? citations : []).filter((c) => {
+    if (!c) return false;
+    const isDoc = Boolean((c.filename || c.doc_id || c.page) && c.type !== "web");
+    const isWeb = Boolean(c.type === "web" || c.url);
+    if (!isDoc && !isWeb) return false;
+
+    // Deduplication key: keeps distinct chunks even if from same page
+    const key = c.chunk_id
+      ? `${c.doc_id || c.filename}_chunk_${c.chunk_id}`
+      : `${c.doc_id || c.filename}_p${c.page || c.page_number || 1}_s${c.source_index || 0}_${c.url || ""}`;
+
+    if (seenCites.has(key)) return false;
+    seenCites.add(key);
+    return true;
+  });
+
   return (
     <div className="markdown-content">
       {blocks.map((block, idx) => {
@@ -435,6 +485,103 @@ export default function MarkdownRenderer({ content, citations, onCitationClick }
             return null;
         }
       })}
+
+      {/* Restored Evidence / Source Citation Cards Stack */}
+      {validCitations.length > 0 && (
+        <div className="citations-stack">
+          {validCitations.map((cite, i) => {
+            const isWeb = cite.type === "web" || cite.url;
+            const srcIdx = cite.source_index != null ? cite.source_index : i + 1;
+            const pageNum = cite.page || cite.page_number || 1;
+            const docName = cite.filename || cite.doc_name || cite.title || "Document";
+
+            if (isWeb) {
+              let host = "";
+              try {
+                if (cite.url) host = new URL(cite.url).hostname.replace(/^www\./, "");
+              } catch {}
+
+              return (
+                <a
+                  key={`web-cite-${i}-${srcIdx}`}
+                  href={cite.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="citation-card-item web-citation-card"
+                  title={cite.snippet || cite.title || cite.url}
+                >
+                  <div className="citation-card-left">
+                    <svg
+                      className="citation-doc-icon web-icon"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="2" y1="12" x2="22" y2="12" />
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                    </svg>
+                    <span className="citation-source-num">[{srcIdx}]</span>
+                    <span className="citation-doc-name">{docName}</span>
+                    {host && (
+                      <>
+                        <span className="citation-separator">•</span>
+                        <span className="citation-page-num">{host}</span>
+                      </>
+                    )}
+                  </div>
+                  <span className="citation-chevron">↗</span>
+                </a>
+              );
+            }
+
+            return (
+              <button
+                key={`doc-cite-${i}-${srcIdx}`}
+                type="button"
+                className="citation-card-item"
+                onClick={() => {
+                  if (onCitationClick) {
+                    onCitationClick(srcIdx, cite);
+                  }
+                }}
+                title={
+                  cite.snippet
+                    ? `Page ${pageNum} • "${cite.snippet.slice(0, 100)}..."`
+                    : `Navigate to ${docName} (Page ${pageNum})`
+                }
+              >
+                <div className="citation-card-left">
+                  <svg
+                    className="citation-doc-icon"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <span className="citation-source-num">[{srcIdx}]</span>
+                  <span className="citation-doc-name">{docName}</span>
+                  <span className="citation-separator">•</span>
+                  <span className="citation-page-num">p. {pageNum}</span>
+                </div>
+                <span className="citation-chevron">›</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

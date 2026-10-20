@@ -17,14 +17,14 @@ import sys
 import json
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # Add project root to sys.path
 root_dir = str(Path(__file__).resolve().parent.parent.parent)
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.messages.ai import AIMessageChunk
 from langchain_core.documents import Document
 
@@ -129,7 +129,7 @@ def test_live_web_search_and_tool_result_handling():
 
     assert len(messages) == 2
     human_content = messages[1].content
-    assert "Supplied Live or External Context:" in human_content
+    assert ("Web Research Evidence:" in human_content or "Supplied Live or External Context:" in human_content)
     assert "135.50 USD" in human_content
     assert "How is Nvidia stock performing today?" in human_content
 
@@ -217,6 +217,9 @@ def test_insufficient_context_refusal_no_fabrication():
 
     mock_llm = MagicMock()
     mock_llm.astream = mock_refusal_stream
+    mock_bound = MagicMock()
+    mock_bound.ainvoke = AsyncMock(return_value=AIMessage(content="This is not mentioned in the document."))
+    mock_llm.bind_tools.return_value = mock_bound
 
     async def run_refusal():
         with patch.object(langchain_adapter, "get_llm", return_value=mock_llm):

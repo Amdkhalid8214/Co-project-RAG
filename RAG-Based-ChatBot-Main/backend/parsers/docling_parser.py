@@ -50,6 +50,11 @@ class DoclingParser:
         """
         file_to_parse = pdf_path if pdf_path and os.path.exists(pdf_path) else filepath
         
+        # Check if Excel spreadsheet
+        ext = Path(filepath).suffix.lower()
+        if ext in [".xlsx", ".xls"]:
+            return self._parse_excel_file(filepath)
+
         # 1. Try Docling-serve
         try:
             elements = self._parse_with_docling_serve(file_to_parse)
@@ -181,6 +186,69 @@ class DoclingParser:
             )
 
         return elements
+
+    def _parse_excel_file(self, filepath: str) -> List[ParsedElement]:
+        """
+        Structure-aware extraction of Excel workbooks using openpyxl.
+        Extracts each worksheet with sheet name, dimensions, row/column counts,
+        clean column headers, and markdown tabular representation.
+        """
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+            elements: List[ParsedElement] = []
+
+            for page_idx, sheetname in enumerate(wb.sheetnames, start=1):
+                ws = wb[sheetname]
+                raw_rows = list(ws.iter_rows(values_only=True))
+                if not raw_rows:
+                    continue
+
+                headers = [
+                    str(c).strip() if c is not None and str(c).strip() != "" else f"Column {i+1}"
+                    for i, c in enumerate(raw_rows[0])
+                ]
+                data_rows = raw_rows[1:]
+
+                header_line = "| " + " | ".join(headers) + " |"
+                sep_line = "| " + " | ".join("---" for _ in headers) + " |"
+                body_lines = [
+                    "| " + " | ".join(str(c if c is not None else "").replace("\n", " ").strip() for c in row[:len(headers)]) + " |"
+                    for row in data_rows
+                ]
+                md_table = "\n".join([header_line, sep_line] + body_lines)
+
+                sheet_text = (
+                    f"Worksheet: {sheetname}\n"
+                    f"Total Rows: {len(data_rows)} (data rows)\n"
+                    f"Total Columns: {len(headers)}\n"
+                    f"Columns: {', '.join(headers)}\n\n"
+                    f"[TABLE: {sheetname}]\n{md_table}"
+                )
+
+                elements.append(
+                    ParsedElement(
+                        text=sheet_text,
+                        page=page_idx,
+                        bboxes=[],
+                        heading_path=[sheetname],
+                        elem_type="table",
+                        metadata={
+                            "is_table": True,
+                            "sheet_name": sheetname,
+                            "row_count": len(data_rows),
+                            "column_count": len(headers),
+                            "columns": headers,
+                        }
+                    )
+                )
+
+            wb.close()
+            logger.info(f"Successfully extracted {len(elements)} worksheet(s) from Excel file {filepath}")
+            return elements
+        except Exception as e:
+            logger.error(f"Error parsing Excel file with openpyxl: {e}. Falling back to default parser.")
+            return self._parse_with_pymupdf(filepath)
 
     def _parse_with_pymupdf(self, filepath: str) -> List[ParsedElement]:
         """

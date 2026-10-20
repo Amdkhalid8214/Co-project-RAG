@@ -12,6 +12,8 @@ PRONOUN_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+from backend.llm.memory import is_followup_question, build_memory_context_block
+
 class QueryRewriter:
     def __init__(self):
         pass
@@ -22,7 +24,8 @@ class QueryRewriter:
         chat_history: List[Dict[str, str]]
     ) -> List[str]:
         """
-        Rewrites question using chat history to resolve pronouns and generates 2-3 alternative queries.
+        Rewrites question using chat history to resolve pronouns and follow-up references
+        and generates 2-3 alternative queries.
         Returns list of queries: [standalone_query, alt_1, alt_2].
         """
         clean_q = question.strip()
@@ -39,25 +42,19 @@ class QueryRewriter:
                     clean_subs.append(c_sub if len(c_sub) >= 5 else sq)
                 return [clean_q, clean_subs[0], clean_subs[1]]
 
-        # Fast bypass: If no chat history or the question has no pronouns/anaphora,
+        # Fast bypass: If no chat history or the question has no pronouns/anaphora/follow-up markers,
         # it is already standalone. Skip the extra synchronous LLM call to save latency.
-        if not chat_history or not PRONOUN_PATTERN.search(clean_q):
+        if not chat_history or not is_followup_question(clean_q):
             return [
                 clean_q,
                 f"{clean_q} details",
                 f"{clean_q} overview"
             ]
 
-        # Format compact history (last 3 turns to keep prompt focused and latency low)
-        recent_turns = chat_history[-3:]
-        history_lines = []
-        for msg in recent_turns:
-            role = msg.get("role", "user")
-            content = msg.get("content", "").replace("\n", " ")[:150]
-            history_lines.append(f"{role}: {content}")
-        history_str = "\n".join(history_lines)
+        # Format compact history using memory context block (bounded turns to keep prompt focused)
+        history_str = build_memory_context_block(chat_history, max_turns=3)
 
-        short_prompt = f"""Task: Resolve pronouns in Question using History into a standalone query, and generate 2 search variations.
+        short_prompt = f"""Task: Resolve pronouns, references, and follow-ups in Question using History into a standalone query, and generate 2 search variations.
 History:
 {history_str}
 Question: {clean_q}

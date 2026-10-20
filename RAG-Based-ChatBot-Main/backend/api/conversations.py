@@ -30,9 +30,27 @@ async def list_conversations(
         stmt = stmt.where(ConversationModel.user_id == current_user.id)
     elif not current_user:
         stmt = stmt.where(ConversationModel.user_id.is_(None))
+    stmt = stmt.options(selectinload(ConversationModel.messages))
     stmt = stmt.order_by(desc(ConversationModel.updated_at)).offset(skip).limit(limit)
     result = await db.execute(stmt)
     convs = result.scalars().all()
+
+    from backend.llm.title_generator import generate_conversation_title
+    updated_any = False
+    for c in convs:
+        if not c.title or c.title.strip() in ("New Chat", "Untitled") or c.title.strip().startswith("New Chat"):
+            user_msgs = [m for m in c.messages if m.role == "user" and m.content and m.content.strip()]
+            if user_msgs:
+                new_title = generate_conversation_title(user_msgs[0].content)
+                if new_title and new_title != "New Chat":
+                    c.title = new_title
+                    updated_any = True
+    if updated_any:
+        try:
+            await db.commit()
+        except Exception:
+            pass
+
     return [c.to_dict() for c in convs]
 
 @router.post("")
