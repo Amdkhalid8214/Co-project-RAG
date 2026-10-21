@@ -63,9 +63,9 @@ WEATHER_REGEX = re.compile(
 )
 
 DOC_EXPLICIT_REGEX = re.compile(
-    r"\b(?:in|from|does|what\s+does|is)\s+(?:the|this)\s+(?:document|pdf|file|context|report|sheet)\b|"
-    r"\b(?:the|this)\s+(?:document|pdf|file|report|sheet)\s+(?:says?|states?|mentions?|contains?)\b|"
-    r"\b(?:in\s+(?:the\s+)?(?:document|pdf|file|context|text|report|sheet)|from\s+(?:the\s+)?(?:document|pdf|file))\b",
+    r"\b(?:in|from|using|based\s+on|according\s+to)\s+(?:the\s+|this\s+|my\s+|our\s+|uploaded\s+|attached\s+|provided\s+)*(?:document|pdf|file|context|text|report|sheet|requirements?)\b|"
+    r"\b(?:the|this|my|our|uploaded|attached|provided)\s+(?:document|pdf|file|report|sheet|requirements?)\s+(?:says?|states?|mentions?|contains?|specifies?|requires?)\b|"
+    r"\b(?:document|pdf|uploaded\s+file)\s+(?:requirements?|context|content)\b",
     re.IGNORECASE
 )
 
@@ -128,12 +128,28 @@ EXCEL_INFO_REGEX = re.compile(
 )
 
 EXCEL_GEN_PATTERNS = [
-    r"\b(?:create|generate|export|build|prepare|make|produce|write)\b.*\b(?:excel|spreadsheet|workbook|\.xlsx)\b",
+    # Explicit file format generation (excel, spreadsheet, workbook, xlsx, xls, csv)
+    r"\b(?:create|generate|export|build|prepare|make|produce|write)\b.*\b(?:excel|spreadsheet|workbook|\.?xlsx?|\.?csv)\b",
+    # Test data / test case generation
     r"\b(?:create|generate|build|prepare|make|produce)\b.*\b(?:test\s+data|test\s+cases?|test\s+suite|test\s+scenarios?)\b",
-    r"\b(?:convert|turn)\b.*\b(?:into|to)\b.*\b(?:excel|spreadsheet|workbook|\.xlsx)\b",
-    r"\b(?:downloadable|exportable)\s+(?:excel|spreadsheet|workbook|sheet|\.xlsx)\b",
-    r"\bexcel\s+(?:sheet|workbook|file)\s+(?:for|with|containing|about)\b",
-    r"\b(?:create|generate|provide|give\s+me)\s+(?:a|an)?\s*(?:excel\s+)?(?:sheet|spreadsheet|workbook)\b",
+    # Conversion into Excel / spreadsheet
+    r"\b(?:convert|turn)\b.*\b(?:into|to)\b.*\b(?:excel|spreadsheet|workbook|\.?xlsx?|\.?csv)\b",
+    # Downloadable / exportable spreadsheet
+    r"\b(?:downloadable|exportable)\s+(?:excel|spreadsheet|workbook|sheet|\.?xlsx?|\.?csv)\b",
+    # "excel/spreadsheet sheet/workbook for/with/containing"
+    r"\b(?:excel|spreadsheet)\s+(?:sheet|workbook|file)\s+(?:for|with|containing|about)\b",
+    # "create/generate a [optional words] sheet/spreadsheet/workbook"
+    r"\b(?:create|generate|provide|give\s+me)\s+(?:a|an)?\s*(?:[a-zA-Z0-9_\-]+\s+){0,4}(?:excel\s+)?(?:sheet|spreadsheet|workbook|table)\b",
+    # Structured tabular data requests without explicitly naming excel:
+    # e.g. "Generate 50 student records with 12 columns"
+    # e.g. "Generate 50 rows of customer data"
+    # e.g. "Create 20 rows and 30 columns of student data"
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:data\s*)?rows?\b",
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:distinct\s*)?columns?\b",
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:students?|customers?|users?|employees?|patients?|products?|sales|tabular|data)?\s*records?\b",
+    # Exporting data to XLSX / Excel / CSV
+    r"\b(?:export\s+.*\b(?:to\s+\.?xlsx?|to\s+excel|to\s+spreadsheet|to\s+\.?csv))\b",
+    # QA patterns
     r"\b(?:positive\s+and\s+negative\s+tests?|valid\s+and\s+invalid\s+(?:examples?|data|inputs?))\b",
 ]
 EXCEL_GEN_REGEX = re.compile("|".join(EXCEL_GEN_PATTERNS), re.IGNORECASE)

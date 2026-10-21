@@ -761,3 +761,216 @@ def test_m_formula_injection_defense():
         assert sanitized.startswith("'"), f"Dangerous input '{dangerous}' was not prefixed with apostrophe: '{sanitized}'"
 
 
+# ==============================================================================
+# Part 10: Mode Compatibility & Multi-Workflow Regression Tests (Tests 1 through 8)
+# ==============================================================================
+
+@pytest.mark.asyncio
+async def test_regression_1_web_mode_with_excel_generation():
+    """
+    Test 1:
+    Web Search mode + "Create an Excel sheet of random 5 rows and 10 columns of students data."
+    Expected:
+    The Excel Generator executes. A valid downloadable XLSX contains exactly five data rows and ten columns.
+    """
+    prompt = "Create an Excel sheet of random 5 rows and 10 columns of students data."
+
+    # 1. Verify router prioritizes Excel generation even when web_mode is True
+    route, badge = await query_router.route_query(prompt, has_documents=False, web_mode=True)
+    assert route == "excel_generation"
+    assert badge == "📊 Excel Generator"
+
+    # 2. Execute full stream generation in web_mode
+    from backend.llm.generator import grounded_generator
+    chunks = []
+    async for sse in grounded_generator.stream_rag_response(
+        question=prompt,
+        route=route,
+        router_badge=badge,
+        retrieved_chunks=[],
+        queries=[prompt],
+        web_mode=True
+    ):
+        chunks.append(sse)
+
+    combined = "".join(chunks)
+    assert "event: excel_artifact" in combined
+    assert "event: done" in combined
+
+    # 3. Extract artifact payload and inspect physical workbook
+    for line in combined.split("\n"):
+        if line.startswith("data:") and "artifact_id" in line:
+            import json
+            art = json.loads(line[5:].strip())
+            assert art["data_row_count"] == 5
+            assert art["data_column_count"] == 10
+            assert art["validation_status"] == "Created and validated"
+
+            file_path = os.path.join(settings.OUTPUT_DIR, art["filename"])
+            assert os.path.exists(file_path)
+
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            ws = wb.active
+            assert ws.max_row == 6  # 1 header + exactly 5 data rows
+            assert ws.max_column == 10  # exactly 10 columns
+            wb.close()
+            break
+
+
+@pytest.mark.asyncio
+async def test_regression_2_default_chat_mode_with_excel_generation():
+    """
+    Test 2:
+    Default chat mode + "Create an Excel sheet of random 5 rows and 10 columns of students data."
+    Expected:
+    The correct workbook is generated.
+    """
+    prompt = "Create an Excel sheet of random 5 rows and 10 columns of students data."
+    route, badge = await query_router.route_query(prompt, has_documents=False, web_mode=False)
+    assert route == "excel_generation"
+    assert badge == "📊 Excel Generator"
+
+    artifact = await generate_workbook_from_request(prompt)
+    assert artifact["data_row_count"] == 5
+    assert artifact["data_column_count"] == 10
+
+    file_path = os.path.join(settings.OUTPUT_DIR, artifact["filename"])
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    assert wb.active.max_row == 6
+    assert wb.active.max_column == 10
+    wb.close()
+
+
+@pytest.mark.asyncio
+async def test_regression_3_web_mode_with_current_excel_documentation():
+    """
+    Test 3:
+    Web Search mode + "Find current Excel documentation."
+    Expected:
+    Live Web Search executes normally. No workbook is generated.
+    """
+    prompt = "Find current Excel documentation."
+    assert is_excel_generation_request(prompt) is False
+
+    route, badge = await query_router.route_query(prompt, has_documents=False, web_mode=True)
+    assert route == "web"
+    assert badge == "🌐 Live Web Search"
+
+
+@pytest.mark.asyncio
+async def test_regression_4_excel_analysis_on_uploaded_file():
+    """
+    Test 4:
+    "Analyze my uploaded Excel file."
+    Expected:
+    Excel analysis executes normally without generating a new file.
+    """
+    prompt = "Analyze my uploaded Excel file."
+    assert is_excel_generation_request(prompt) is False
+
+    from backend.tools.excel_analyzer import active_excel_context
+    active_excel_context.set({
+        "doc_ids": ["doc_test_123"],
+        "doc_id": "doc_test_123",
+        "filename": "sales_q4.xlsx",
+        "has_spreadsheet": True,
+    })
+
+    route, badge = await query_router.route_query(prompt, has_documents=True, web_mode=False)
+    assert route == "document"
+    assert badge == "📊 Spreadsheet Analysis"
+    active_excel_context.set(None)
+
+
+@pytest.mark.asyncio
+async def test_regression_5_document_based_excel_generation():
+    """
+    Test 5:
+    "Generate Excel test cases from my uploaded PDF."
+    Expected:
+    Relevant document requirements are retrieved and used to create a workbook.
+    """
+    prompt = "Generate Excel test cases from my uploaded PDF."
+    route, badge = await query_router.route_query(prompt, has_documents=True, web_mode=False)
+    assert route == "excel_generation"
+
+    from backend.llm.router import DOC_EXPLICIT_REGEX
+    assert bool(DOC_EXPLICIT_REGEX.search(prompt)) is True
+
+    fake_doc_chunks = [
+        {"chunk_id": "c1", "text": "Requirement 1: User password must contain at least 8 characters and 1 symbol.", "doc_id": "pdf_1"}
+    ]
+    artifact = await generate_workbook_from_request(prompt, context=fake_doc_chunks[0]["text"])
+    assert artifact["validation_status"] == "Created and validated"
+    assert artifact["sheet_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_regression_6_consecutive_generation_different_dimensions_same_conv():
+    """
+    Test 6:
+    Generate one workbook and then another with different dimensions in the same conversation.
+    Expected:
+    The second response returns the second workbook's own artifact ID and dimensions.
+    """
+    conv_id = "conv_test_consecutive_999"
+    p1 = "Create an Excel sheet of random 5 rows and 10 columns of students data."
+    p2 = "Create an Excel sheet with 15 rows and 8 columns of customer data."
+
+    art1 = await generate_workbook_from_request(p1, conversation_id=conv_id)
+    art2 = await generate_workbook_from_request(p2, conversation_id=conv_id)
+
+    assert art1["artifact_id"] != art2["artifact_id"]
+    assert art1["filename"] != art2["filename"]
+    assert art1["data_row_count"] == 5
+    assert art1["data_column_count"] == 10
+    assert art2["data_row_count"] == 15
+    assert art2["data_column_count"] == 8
+
+    # Check both files exist independently
+    path1 = os.path.join(settings.OUTPUT_DIR, art1["filename"])
+    path2 = os.path.join(settings.OUTPUT_DIR, art2["filename"])
+    assert os.path.exists(path1)
+    assert os.path.exists(path2)
+
+
+def test_regression_7_invalid_dimensions_controlled_error():
+    """
+    Test 7:
+    Generation fails or input dimensions are invalid.
+    Expected:
+    A controlled error appears. No old artifact is presented as the result.
+    """
+    with pytest.raises(ValueError) as exc:
+        parse_excel_generation_request("Create an Excel sheet with -20 rows and 5 columns")
+    assert "Invalid dimensions" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc2:
+        parse_excel_generation_request("Create an Excel sheet with 90000 rows and 10 columns")
+    assert "exceeds maximum supported limit" in str(exc2.value)
+
+
+@pytest.mark.asyncio
+async def test_regression_8_download_endpoint_openpyxl_integrity():
+    """
+    Test 8:
+    The generated workbook is downloaded through the actual endpoint and reopened with openpyxl.
+    Expected:
+    The downloaded file matches the generated artifact.
+    """
+    prompt = "Create an Excel sheet of random 5 rows and 10 columns of students data."
+    artifact = await generate_workbook_from_request(prompt)
+    artifact_id = artifact["artifact_id"]
+
+    response = await download_output_file(filename=artifact_id)
+    assert response.status_code == 200
+    assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    downloaded_wb = openpyxl.load_workbook(response.path, data_only=True)
+    ws = downloaded_wb.active
+    assert ws.max_row == 6  # 1 header + 5 rows
+    assert ws.max_column == 10
+    downloaded_wb.close()
+
+
+

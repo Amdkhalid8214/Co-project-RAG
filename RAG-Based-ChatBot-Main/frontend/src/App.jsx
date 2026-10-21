@@ -663,12 +663,13 @@ export default function App() {
       created_at: new Date().toISOString()
     };
     const isWeatherQuery = /\b(weather|temperature|forecast|rainfall|umbrella|humidity|wind\s+speed|precipitat|how\s+(?:hot|cold|warm)|is\s+it\s+(?:raining|sunny|cloudy|snowing)|rain\s+in|snow\s+in)\b/i.test(text);
+    const isExcelGenQuery = /\b(create|generate|export|build|prepare|make|produce)\b.*\b(excel|sheet|spreadsheet|workbook|\.?xlsx?|\d+\s*(?:data\s*)?rows?|\d+\s*columns?|test\s*cases?)/i.test(text);
     const tempAsstId = `asst_${Date.now()}`;
     const tempAsstMsg = {
       id: tempAsstId,
       role: "assistant",
       content: "",
-      router_badge: isWeatherQuery ? "⛅ Live Weather" : (webMode ? "🌐 Live Web Search" : null),
+      router_badge: isWeatherQuery ? "⛅ Live Weather" : (isExcelGenQuery ? "📊 Excel Generator" : (webMode ? "🌐 Live Web Search" : null)),
       citations: [],
       weather: null,
       created_at: new Date().toISOString()

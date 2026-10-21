@@ -43,7 +43,7 @@ from backend.tools.excel_analyzer import excel_analyzer_tool, active_excel_conte
 from backend.tools.excel_generator import excel_generator_tool, active_excel_artifact
 from backend.tools.weather import weather_tool, active_weather_data
 from backend.llm.memory import format_chat_history_for_llm
-from backend.llm.router import is_weather_request
+from backend.llm.router import is_weather_request, is_excel_generation_request
 
 logger = logging.getLogger(__name__)
 
@@ -743,6 +743,8 @@ class LangChainAdapter:
                     active_tools.append(calculator_tool)
                 if is_weather_request(question) and weather_tool not in active_tools:
                     active_tools.append(weather_tool)
+                if is_excel_generation_request(question) and excel_generator_tool not in active_tools:
+                    active_tools.append(excel_generator_tool)
                 if web_mode and not is_weather_request(question):
                     active_tools.append(searxng_search_tool)
                 use_tools = active_tools if active_tools else None

@@ -167,26 +167,19 @@ async def chat_endpoint(
     else:
         active_excel_context.set(None)
 
-    # 5. Route Query (prioritizes Live Weather, supports explicit Real-Web Mode)
+    # 5. Route Query via centralized QueryRouter (ensures Excel generation takes priority in every mode)
     web_mode = bool(req.web_mode)
-    if is_weather_request(req.message):
-        route = "general"
-        badge = "⛅ Live Weather"
-    elif web_mode:
-        route = "web"
-        badge = "🌐 Live Web Search"
-    else:
-        router_instance = query_router
-        if req.router_mode and req.router_mode != settings.ROUTER_MODE:
-            from backend.llm.router import QueryRouter
-            router_instance = QueryRouter(mode=req.router_mode)
+    router_instance = query_router
+    if req.router_mode and req.router_mode != settings.ROUTER_MODE:
+        from backend.llm.router import QueryRouter
+        router_instance = QueryRouter(mode=req.router_mode)
 
-        route, badge = await router_instance.route_query(
-            question=req.message,
-            has_documents=has_documents,
-            active_doc_ids=effective_doc_ids,
-            web_mode=bool(req.web_mode)
-        )
+    route, badge = await router_instance.route_query(
+        question=req.message,
+        has_documents=has_documents,
+        active_doc_ids=effective_doc_ids,
+        web_mode=web_mode
+    )
 
     # 6. Retrieve relevant chunks if route == "document" or document-based Excel generation
     retrieved_chunks: List[Dict[str, Any]] = []

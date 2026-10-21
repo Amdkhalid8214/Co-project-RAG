@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 import asyncio
@@ -217,17 +218,39 @@ class GroundedGenerator:
         if is_excel_gen:
             active_excel_artifact.set(None)
             try:
-                # Provide retrieved document context if available (for document-based excel generation)
+                # 1. Provide retrieved document context if available (for document-based excel generation)
                 doc_ctx = ""
                 if retrieved_chunks:
                     doc_ctx = "\n\n".join([c.get("text", "") for c in retrieved_chunks[:3]])
+
+                # 2. Provide live web research context if external information is explicitly requested
+                web_ctx = ""
+                has_synthetic_keyword = bool(re.search(r"\b(?:synthetic|random|mock|dummy|fake|sample)\b", question, re.I))
+                external_research_needed = bool(
+                    re.search(r"\b(research|web\s+search|internet|online|current\s+(?:prices?|info|information|data|statistics|stats)|latest\s+(?:news|info|information|prices?|stats))\b", question, re.I)
+                    or (web_mode and not doc_ctx and not has_synthetic_keyword and not re.search(r"\b(?:students?|customers?|employees?|test\s+cases?)\b", question, re.I))
+                ) and not has_synthetic_keyword
+
+                if external_research_needed:
+                    from backend.tools.searxng_search import search_searxng_async, active_web_citations
+                    from backend.llm.memory import package_web_citations
+                    try:
+                        search_res = await search_searxng_async(question, inspect_pages=True, fallback=True)
+                        if search_res.get("results"):
+                            web_ctx = search_res.get("formatted", "")
+                            cites = package_web_citations(question, search_res["results"])
+                            active_web_citations.set(cites)
+                    except Exception as err:
+                        logger.warning(f"[EXCEL_GEN] Web research failed: {err}")
+
+                combined_ctx = f"{doc_ctx}\n\n{web_ctx}".strip()
 
                 artifact = await generate_workbook_from_request(
                     prompt=question,
                     history=history,
                     user_id=user_id,
                     conversation_id=conversation_id,
-                    context=doc_ctx
+                    context=combined_ctx
                 )
                 active_excel_artifact.set(artifact)
 
@@ -251,7 +274,8 @@ class GroundedGenerator:
                 for w in err_text.split(" "):
                     yield f"event: token\ndata: {json.dumps({'content': w + ' '}, ensure_ascii=False)}\n\n"
 
-            yield f"event: citations\ndata: {json.dumps({'citations': []})}\n\n"
+            web_cites = active_web_citations.get([])
+            yield f"event: citations\ndata: {json.dumps({'citations': web_cites})}\n\n"
             yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
             return
 
@@ -314,6 +338,11 @@ class GroundedGenerator:
             weather_payload = active_weather_data.get()
             if weather_payload and not is_weather:
                 yield f"event: weather\ndata: {json.dumps(weather_payload)}\n\n"
+
+            # Check if excel generator tool was executed during LangChain tool calls
+            excel_art = active_excel_artifact.get()
+            if excel_art:
+                yield f"event: excel_artifact\ndata: {json.dumps(excel_art, ensure_ascii=False)}\n\n"
 
             web_cites = active_web_citations.get([])
             yield f"event: citations\ndata: {json.dumps({'citations': web_cites})}\n\n"
@@ -417,6 +446,11 @@ class GroundedGenerator:
         web_cites = active_web_citations.get([])
         if web_cites:
             citations = citations + web_cites
+
+        # Check if excel generator tool was executed during LangChain grounded tool calls
+        excel_art = active_excel_artifact.get()
+        if excel_art:
+            yield f"event: excel_artifact\ndata: {json.dumps(excel_art, ensure_ascii=False)}\n\n"
 
         # Send citations event (only containing the exact answer highlight boxes and web citations)
         yield f"event: citations\ndata: {json.dumps({'citations': citations})}\n\n"

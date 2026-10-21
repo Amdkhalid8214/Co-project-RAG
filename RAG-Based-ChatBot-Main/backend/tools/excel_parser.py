@@ -57,7 +57,7 @@ def parse_excel_generation_request(prompt: str, context: Optional[str] = None) -
     # Handles: "20 rows", "20 data rows", "20 records", "20 student records", "200 test cases", "20-row"
     row_patterns = [
         r"(\d+)\s*(?:data\s*)?rows?\b",
-        r"(\d+)\s*(?:student|customer|user|employee|patient|product|sales|tabular|data)?\s*records?\b",
+        r"(\d+)\s*(?:students?|customers?|users?|employees?|patients?|products?|sales|tabular|data)?\s*records?\b",
         r"(\d+)\s*(?:[a-zA-Z0-9_\-]+\s*){0,4}test\s*cases?\b",
         r"(\d+)\s*(?:[a-zA-Z0-9_\-]+\s*){0,4}tests?\b",
         r"(\d+)\s*entries\b",
@@ -111,23 +111,23 @@ def parse_excel_generation_request(prompt: str, context: Optional[str] = None) -
     app_name = "Custom Spreadsheet"
     prefix = "spreadsheet"
 
-    if re.search(r"\b(student|school|university|academic|college|education|grades?|gpa)\b", clean_p, re.I):
+    if re.search(r"\b(students?|school|university|academic|college|education|grades?|gpa)\b", clean_p, re.I):
         domain = "student_data"
         app_name = "Student Management System" if is_qa else "Student Information"
         prefix = "student_management_test_data" if is_qa else "student_data"
-    elif re.search(r"\b(hospital|patient|doctor|medical|clinic|healthcare)\b", clean_p, re.I):
+    elif re.search(r"\b(hospitals?|patients?|doctors?|medical|clinic|healthcare)\b", clean_p, re.I):
         domain = "healthcare_data"
         app_name = "Hospital Management System" if is_qa else "Patient Registry"
         prefix = "hospital_management_test_data" if is_qa else "patient_data"
-    elif re.search(r"\b(employee|payroll|hr|salary|staff|wages?)\b", clean_p, re.I):
+    elif re.search(r"\b(employees?|payroll|hr|salary|salaries|staff|wages?)\b", clean_p, re.I):
         domain = "employee_data"
         app_name = "Employee & Payroll System" if is_qa else "Employee Directory"
         prefix = "employee_test_data" if is_qa else "employee_data"
-    elif re.search(r"\b(customer|client|consumer|crm)\b", clean_p, re.I):
+    elif re.search(r"\b(customers?|clients?|consumers?|crm)\b", clean_p, re.I):
         domain = "customer_data"
         app_name = "Customer Relationship System" if is_qa else "Customer Directory"
         prefix = "customer_test_data" if is_qa else "customer_data"
-    elif re.search(r"\b(sales|order|product|checkout|e-?commerce|inventory)\b", clean_p, re.I):
+    elif re.search(r"\b(sales|orders?|products?|checkout|e-?commerce|inventory)\b", clean_p, re.I):
         domain = "sales_data"
         app_name = "E-Commerce System" if is_qa else "Product Sales"
         prefix = "sales_test_data" if is_qa else "sales_data"
