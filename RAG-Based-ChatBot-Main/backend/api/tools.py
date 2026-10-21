@@ -6,10 +6,12 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict, Any
-
+from typing import Dict, Any, Optional
 from backend.config import settings
 from backend.tools.registry import TOOL_DEFINITIONS, execute_tool
+from backend.tools.artifact_registry import artifact_registry
+from backend.api.auth import get_current_user_optional
+from backend.db.models import UserModel
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 
@@ -31,13 +33,34 @@ async def execute_tool_endpoint(req: ToolExecuteRequest):
     return result
 
 @router.get("/download/{filename}")
-async def download_output_file(filename: str):
-    """Secure file download preventing path traversal."""
-    # Defend against path traversal
-    safe_filename = Path(filename).name
-    target_path = Path(settings.OUTPUT_DIR) / safe_filename
+async def download_output_file(
+    filename: str,
+    current_user: Optional[UserModel] = Depends(get_current_user_optional)
+):
+    """
+    Secure file download endpoint:
+    1. Looks up artifact in ArtifactRegistry by artifact_id or filename.
+    2. Validates user/session ownership to prevent unauthorized cross-session access.
+    3. Prevents path traversal and never exposes internal server paths.
+    4. Serves correct MIME type and Content-Disposition headers.
+    """
+    # 1. Check ArtifactRegistry
+    record = artifact_registry.get_artifact(filename)
+    if record:
+        user_id = current_user.id if isinstance(current_user, UserModel) else None
+        user_role = current_user.role if isinstance(current_user, UserModel) else None
 
-    # Ensure path stays within settings.OUTPUT_DIR
+        if not artifact_registry.validate_access(record, user_id=user_id, user_role=user_role):
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to access this generated artifact.")
+
+        target_path = Path(record.file_path)
+        safe_filename = record.filename
+    else:
+        # Fallback to direct filename in settings.OUTPUT_DIR (for backward compatibility)
+        safe_filename = Path(filename).name
+        target_path = Path(settings.OUTPUT_DIR) / safe_filename
+
+    # Ensure path stays strictly within settings.OUTPUT_DIR
     resolved_target = target_path.resolve()
     resolved_output_dir = Path(settings.OUTPUT_DIR).resolve()
 

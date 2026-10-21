@@ -172,6 +172,8 @@ class GroundedGenerator:
         queries: List[str],
         web_mode: bool = False,
         history: Optional[List[Dict[str, Any]]] = None,
+        user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Yields Server-Sent Events (SSE) lines:
@@ -213,8 +215,20 @@ class GroundedGenerator:
 
         # Case 0: Excel Generation Route
         if is_excel_gen:
+            active_excel_artifact.set(None)
             try:
-                artifact = await generate_workbook_from_request(prompt=question, history=history)
+                # Provide retrieved document context if available (for document-based excel generation)
+                doc_ctx = ""
+                if retrieved_chunks:
+                    doc_ctx = "\n\n".join([c.get("text", "") for c in retrieved_chunks[:3]])
+
+                artifact = await generate_workbook_from_request(
+                    prompt=question,
+                    history=history,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    context=doc_ctx
+                )
                 active_excel_artifact.set(artifact)
 
                 # Emit structured excel_artifact event for chat UI card and coverage dashboard

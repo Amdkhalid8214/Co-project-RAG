@@ -188,11 +188,14 @@ async def chat_endpoint(
             web_mode=bool(req.web_mode)
         )
 
-    # 6. Retrieve relevant chunks if route == "document"
+    # 6. Retrieve relevant chunks if route == "document" or document-based Excel generation
     retrieved_chunks: List[Dict[str, Any]] = []
     queries = [req.message]
 
-    if route == "document":
+    from backend.llm.router import DOC_EXPLICIT_REGEX
+    is_doc_excel = (route == "excel_generation" and has_documents and bool(DOC_EXPLICIT_REGEX.search(req.message)))
+
+    if route == "document" or is_doc_excel:
         # Multi-query transformation
         queries = await query_rewriter.transform_query(req.message, history_dicts)
         
@@ -220,7 +223,9 @@ async def chat_endpoint(
             retrieved_chunks=retrieved_chunks,
             queries=queries,
             web_mode=web_mode,
-            history=history_dicts
+            history=history_dicts,
+            user_id=user_id,
+            conversation_id=conv_id,
         ):
             # Intercept events for DB storage
             lines = sse_chunk.strip().split("\n")

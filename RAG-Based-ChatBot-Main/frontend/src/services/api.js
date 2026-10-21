@@ -182,15 +182,20 @@ export const api = {
   },
 
   // Excel Artifact Download
-  getDownloadUrl(filename) {
-    const safeName = encodeURIComponent(filename);
-    return `${API_BASE}/tools/download/${safeName}`;
+  getDownloadUrl(identifier) {
+    const safeId = encodeURIComponent(identifier);
+    return `${API_BASE}/tools/download/${safeId}`;
   },
 
-  async downloadExcelFile(filename) {
-    const safeName = encodeURIComponent(filename);
-    const url = `${API_BASE}/tools/download/${safeName}`;
-    const res = await fetch(url);
+  async downloadExcelFile(identifier, downloadFilename) {
+    const safeId = encodeURIComponent(identifier);
+    const url = `${API_BASE}/tools/download/${safeId}`;
+    const token = localStorage.getItem("docuchat_token");
+    const headers = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       throw new Error(`Failed to download workbook: HTTP ${res.status}`);
     }
@@ -198,7 +203,7 @@ export const api = {
     const blobUrl = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
-    a.download = filename;
+    a.download = downloadFilename || identifier;
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(blobUrl);

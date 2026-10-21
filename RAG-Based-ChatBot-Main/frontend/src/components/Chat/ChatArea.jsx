@@ -17,36 +17,21 @@ function getResolvedExcelArtifact(msg) {
     }
   }
 
-  // Graceful fallback for prior messages in conversation history
+  // If excel_artifact not populated in older records, only resolve if message explicitly named a specific file
   const content = msg.content || "";
-  const isExcelBadge = msg.router_badge && (msg.router_badge.includes("Excel") || msg.router_badge.includes("📊"));
-  if (isExcelBadge || content.includes("Excel test workbook") || content.includes(".xlsx")) {
-    const isExported = content.includes("exported_data.xlsx");
-    const fn = isExported ? "exported_data.xlsx" : "application_test_data.xlsx";
+  const fnMatch = content.match(/\*\*([a-zA-Z0-9_\-]+\.xlsx)\*\*/);
+  if (fnMatch) {
+    const fn = fnMatch[1];
+    const isQa = fn.includes("test_data") || fn.includes("test_cases");
     return {
       filename: fn,
       file_type: "Excel workbook",
-      sheet_count: isExported ? 1 : 4,
-      total_cases: isExported ? 25 : 130,
-      total_rows: isExported ? 25 : 130,
+      sheet_count: isQa ? 4 : 1,
+      total_cases: 0,
+      total_rows: 0,
       validation_status: "Created and validated",
-      is_qa_test_data: !isExported,
-      download_url: `/api/tools/download/${fn}`,
-      coverage: {
-        total: 130,
-        large_dataset: 100,
-        categories: [
-          { name: "Valid Data", count: 2 },
-          { name: "Invalid Data", count: 7 },
-          { name: "Boundary Cases", count: 4 },
-          { name: "Missing Data", count: 5 },
-          { name: "Duplicate Data", count: 2 },
-          { name: "Edge Cases", count: 4 },
-          { name: "Data Type Errors", count: 2 },
-          { name: "Security Test Inputs", count: 4 },
-          { name: "Large Dataset", count: 100 },
-        ]
-      }
+      is_qa_test_data: isQa,
+      download_url: `/api/tools/download/${encodeURIComponent(fn)}`
     };
   }
   return null;
@@ -134,11 +119,6 @@ export default function ChatArea({
                       <WeatherCard weather={msg.weather} />
                     )}
 
-                    {/* Dedicated QA Test Coverage Dashboard matching Reference Screenshot 1 */}
-                    {excelArtifact && (excelArtifact.is_qa_test_data || excelArtifact.coverage) && (
-                      <TestCoverageDashboard artifact={excelArtifact} />
-                    )}
-
                     <div className="asst-markdown-text">
                       {msg.content ? (
                         <MarkdownRenderer
@@ -158,6 +138,11 @@ export default function ChatArea({
                     {/* Dedicated Downloadable Excel Workbook Card matching Reference Screenshot 2 */}
                     {excelArtifact && (
                       <ExcelArtifactCard artifact={excelArtifact} />
+                    )}
+
+                    {/* Dedicated QA Test Coverage Dashboard matching Reference Screenshot 1 */}
+                    {excelArtifact && (excelArtifact.is_qa_test_data || excelArtifact.coverage) && (
+                      <TestCoverageDashboard artifact={excelArtifact} />
                     )}
 
                     <div className="asst-footer-time">

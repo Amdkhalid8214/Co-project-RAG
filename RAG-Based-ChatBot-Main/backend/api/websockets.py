@@ -233,7 +233,9 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
             # 6. Multi-query rewriting & Hybrid retrieval
             retrieved_chunks = []
             queries = [message]
-            if route == "document":
+            from backend.llm.router import DOC_EXPLICIT_REGEX
+            is_doc_excel = (route == "excel_generation" and has_documents and bool(DOC_EXPLICIT_REGEX.search(message)))
+            if route == "document" or is_doc_excel:
                 queries = await query_rewriter.transform_query(message, history_dicts)
                 retrieved_chunks = await retrieval_pipeline.retrieve(
                     queries=queries,
@@ -265,7 +267,9 @@ async def websocket_chat_endpoint(websocket: WebSocket, token: Optional[str] = Q
                     retrieved_chunks=retrieved_chunks,
                     queries=queries,
                     web_mode=web_mode,
-                    history=history_dicts
+                    history=history_dicts,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
                 ):
                     # Parse internal SSE chunks into structured WebSocket messages
                     for line in sse_chunk.strip().split("\n"):

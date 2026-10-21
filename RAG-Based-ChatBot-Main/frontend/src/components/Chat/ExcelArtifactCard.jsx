@@ -14,24 +14,26 @@ export default function ExcelArtifactCard({ artifact }) {
     }
   }
 
-  if (!art || !art.filename) {
+  if (!art || !art.filename || art.valid === false) {
     return null;
   }
 
   const filename = art.filename;
+  const artifactId = art.artifact_id || filename;
   const sheetCount = art.sheet_count || 1;
   const isQa = art.is_qa_test_data !== false;
-  const casesOrRows = art.total_cases || art.total_rows || 0;
+  const casesOrRows = art.data_row_count || art.total_rows || art.total_cases || 0;
   const countLabel = isQa ? "test cases" : "data rows";
+  const colCount = art.data_column_count || (art.columns ? art.columns.length : (!isQa ? art.total_columns : null));
   const validationStatus = art.validation_status || "Created and validated";
 
-  // Build secure download URL
+  // Build secure download URL bound strictly to this artifact
   const backendBase = process.env.REACT_APP_API_BASE || "http://localhost:5000/api";
   const directDownloadUrl = art.download_url
     ? (art.download_url.startsWith("http")
         ? art.download_url
         : `${backendBase.replace(/\/api$/, "")}${art.download_url.startsWith("/") ? "" : "/"}${art.download_url}`)
-    : `${backendBase}/tools/download/${encodeURIComponent(filename)}`;
+    : `${backendBase}/tools/download/${encodeURIComponent(artifactId)}`;
 
   const handleDownloadClick = async (e) => {
     e.preventDefault();
@@ -39,7 +41,7 @@ export default function ExcelArtifactCard({ artifact }) {
     setDownloading(true);
     try {
       if (api.downloadExcelFile) {
-        await api.downloadExcelFile(filename);
+        await api.downloadExcelFile(artifactId, filename);
       } else {
         const res = await fetch(directDownloadUrl);
         if (!res.ok) throw new Error("Download failed");
@@ -86,6 +88,7 @@ export default function ExcelArtifactCard({ artifact }) {
           <h4 className="excel-card-filename">{filename}</h4>
           <div className="excel-card-subtitle">
             Excel workbook · {sheetCount} {sheetCount === 1 ? "sheet" : "sheets"} · {casesOrRows} {countLabel}
+            {colCount ? ` · ${colCount} columns` : ""}
           </div>
           <div>
             <span className="excel-validated-badge">{validationStatus}</span>

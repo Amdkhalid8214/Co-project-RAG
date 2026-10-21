@@ -19,6 +19,7 @@ Validates all 14 requirements from Part 9:
 
 import os
 import io
+import asyncio
 import pytest
 from pathlib import Path
 import openpyxl
@@ -28,10 +29,17 @@ from backend.tools.excel_generator import (
     sanitize_cell_value,
     generate_custom_workbook,
     generate_qa_test_data_workbook,
+    generate_student_management_qa_workbook,
+    generate_domain_qa_workbook,
+    generate_dynamic_dataset_workbook,
     validate_generated_workbook,
     generate_workbook_from_request,
     excel_generator_tool,
 )
+from backend.tools.excel_parser import parse_excel_generation_request
+from backend.tools.dynamic_data_generator import STUDENT_PRIMARY_COLUMNS
+from backend.tools.artifact_registry import artifact_registry
+from backend.db.models import UserModel
 from backend.llm.router import (
     is_excel_generation_request,
     is_weather_request,
@@ -89,7 +97,8 @@ def test_create_qa_test_data_workbook():
         filename_prefix="application_test_data"
     )
 
-    assert artifact["filename"] == "application_test_data.xlsx"
+    assert artifact["filename"].startswith("application_test_data")
+    assert artifact["filename"].endswith(".xlsx")
     assert artifact["file_type"] == "Excel workbook"
     assert artifact["sheet_count"] == 4
     assert artifact["total_cases"] == 130
@@ -328,11 +337,12 @@ async def test_all_user_request_examples_route_to_excel_generation():
 @pytest.mark.asyncio
 async def test_end_to_end_generate_workbook_from_request():
     artifact = await generate_workbook_from_request("Create an Excel sheet for user registration testing.")
-    assert artifact["filename"] == "application_test_data.xlsx"
+    assert artifact["filename"].startswith("application_test_data")
+    assert artifact["filename"].endswith(".xlsx")
     assert artifact["sheet_count"] == 4
     assert artifact["total_cases"] == 130
     assert artifact["validation_status"] == "Created and validated"
-    assert artifact["download_url"] == "/api/tools/download/application_test_data.xlsx"
+    assert "/api/tools/download/" in artifact["download_url"]
 
 
 @pytest.mark.asyncio
@@ -353,7 +363,401 @@ async def test_stream_rag_response_excel_generation_events():
     assert "event: meta" in combined
     assert "📊 Excel Generator" in combined
     assert "event: excel_artifact" in combined
-    assert "application_test_data.xlsx" in combined
+    assert "application_test_data" in combined
     assert "event: token" in combined
     assert "Done, AMD!" in combined
     assert "event: done" in combined
+
+
+# ==============================================================================
+# 15. Student Management System Workbook Generation Tests
+# ==============================================================================
+def test_create_student_management_workbook():
+    artifact = generate_student_management_qa_workbook(
+        application_name="Student Management System",
+        filename_prefix="student_management_test_data"
+    )
+
+    assert artifact["filename"].startswith("student_management_test_data")
+    assert artifact["filename"].endswith(".xlsx")
+    assert artifact["file_type"] == "Excel workbook"
+    assert artifact["sheet_count"] == 4
+    assert artifact["total_cases"] == 130
+    assert artifact["large_dataset_cases"] == 100
+    assert artifact["validation_status"] == "Created and validated"
+    assert artifact["is_qa_test_data"] is True
+    assert artifact["application_name"] == "Student Management System"
+    assert "student_management_test_data" in artifact["reply_message"]
+    assert "/api/tools/download/" in artifact["download_url"]
+
+    file_path = os.path.join(settings.OUTPUT_DIR, artifact["filename"])
+    assert os.path.exists(file_path)
+
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    expected_sheets = ["Summary", "Functional Tests", "Security & Edge Tests", "Large Dataset"]
+    assert wb.sheetnames == expected_sheets
+
+    # Verify Functional Tests has Student test cases
+    ws_func = wb["Functional Tests"]
+    assert ws_func.max_row >= 26
+    found_student_case = False
+    for r in range(2, ws_func.max_row + 1):
+        cell_val = str(ws_func.cell(row=r, column=3).value or "")
+        if "student" in cell_val.lower() or "marks" in cell_val.lower() or "enroll" in cell_val.lower():
+            found_student_case = True
+            break
+    assert found_student_case is True
+
+    # Verify Large Dataset has Student headers and 100 rows
+    ws_large = wb["Large Dataset"]
+    assert ws_large.max_row == 101  # 1 header + 100 student records
+    headers = [cell.value for cell in ws_large[1]]
+    assert "Student ID" in headers
+    assert "Marks" in headers
+    assert "Attendance (%)" in headers
+    assert "Guardian Phone" in headers
+
+    # Verify first data row
+    first_row = [cell.value for cell in ws_large[2]]
+    assert first_row[0] == "STU-2026-0001"
+    assert "@student.edu" in str(first_row[2])
+    wb.close()
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_student_management_request():
+    prompt = (
+        "Create an Excel workbook for a student management system with 100 test cases. "
+        "Include Student ID, Name, Email, Age, Class, Marks, Attendance, and Guardian Phone. "
+        "Test valid inputs, invalid marks, duplicate IDs, missing fields, boundary values, "
+        "and bulk uploads. Include expected results, test steps, validation rules, and a formula-driven summary."
+    )
+    artifact = await generate_workbook_from_request(prompt)
+
+    # Must create a custom student management file
+    assert artifact["filename"].startswith("student_management_test_data")
+    assert artifact["filename"].endswith(".xlsx")
+    assert artifact["application_name"] == "Student Management System"
+    assert artifact["sheet_count"] == 4
+    assert artifact["total_cases"] == 130
+    assert artifact["large_dataset_cases"] == 100
+    assert artifact["validation_status"] == "Created and validated"
+    assert artifact["is_qa_test_data"] is True
+    assert "/api/tools/download/" in artifact["download_url"]
+    assert "student_management_test_data" in artifact["reply_message"]
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_hospital_management_request():
+    prompt = "Create an Excel workbook for hospital management system with test cases"
+    artifact = await generate_workbook_from_request(prompt)
+
+    assert artifact["filename"].startswith("hospital_management_test_data")
+    assert artifact["filename"].endswith(".xlsx")
+    assert artifact["application_name"] == "Hospital Management System"
+    assert artifact["sheet_count"] == 4
+    assert artifact["is_qa_test_data"] is True
+    assert "/api/tools/download/" in artifact["download_url"]
+
+
+# ==============================================================================
+# Mandatory Requirement Tests A through M (Dynamic Excel Generation & Artifact Isolation)
+# ==============================================================================
+
+@pytest.mark.asyncio
+async def test_a_dynamic_dimensions_student_data():
+    """
+    Test A — Dynamic dimensions:
+    Generate 20 rows and 30 columns of student data. Verify the actual workbook contains
+    exactly 20 data rows and 30 columns.
+    """
+    prompt = "Create an Excel sheet with 20 rows and 30 columns of student data."
+    artifact = await generate_workbook_from_request(prompt)
+
+    assert artifact["data_row_count"] == 20
+    assert artifact["data_column_count"] == 30
+    assert artifact["validation_status"] == "Created and validated"
+
+    file_path = os.path.join(settings.OUTPUT_DIR, artifact["filename"])
+    assert os.path.exists(file_path)
+
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    ws = wb.active
+    # Header row (1) + exactly 20 data rows = 21 rows
+    assert ws.max_row == 21
+    assert ws.max_column == 30
+
+    headers = [str(ws.cell(row=1, column=c).value or "").strip() for c in range(1, 31)]
+    assert len(headers) == 30
+    assert len(set(headers)) == 30  # All 30 distinct columns
+    assert headers == STUDENT_PRIMARY_COLUMNS
+
+    # Spot check data row types
+    first_row = [ws.cell(row=2, column=c).value for c in range(1, 31)]
+    assert first_row[0].startswith("STU-")
+    assert "@" in str(first_row[5])  # Email column (index 5)
+    wb.close()
+
+
+@pytest.mark.asyncio
+async def test_b_consecutive_generation_isolation():
+    """
+    Test B — Consecutive generation:
+    Generate a 100-row user-registration workbook, then generate a 20-row, 30-column
+    student workbook. Verify that the second request returns a different artifact ID,
+    correct student columns, correct dimensions, and a different workbook artifact.
+    """
+    prompt1 = "Create an Excel workbook with 100 user registration test cases."
+    art1 = await generate_workbook_from_request(prompt1)
+
+    prompt2 = "Create an Excel sheet with 20 rows and 30 columns of student data."
+    art2 = await generate_workbook_from_request(prompt2)
+
+    # 1. Distinct IDs and filenames
+    assert art1["artifact_id"] != art2["artifact_id"]
+    assert art1["generation_request_id"] != art2["generation_request_id"]
+    assert art1["filename"] != art2["filename"]
+
+    # 2. Dimensions correctly differentiated
+    assert art2["data_row_count"] == 20
+    assert art2["data_column_count"] == 30
+    assert art1["filename"].startswith("application_test_data")
+    assert art2["filename"].startswith("student_data")
+
+    # 3. Ensure both workbooks exist on disk without overwriting each other
+    path1 = os.path.join(settings.OUTPUT_DIR, art1["filename"])
+    path2 = os.path.join(settings.OUTPUT_DIR, art2["filename"])
+    assert os.path.exists(path1)
+    assert os.path.exists(path2)
+
+    wb2 = openpyxl.load_workbook(path2, data_only=True)
+    ws2 = wb2.active
+    assert ws2.max_row == 21
+    assert ws2.max_column == 30
+    wb2.close()
+
+
+@pytest.mark.asyncio
+async def test_c_same_session_isolation():
+    """
+    Test C — Same-session isolation:
+    Generate multiple workbooks in the same conversation. Confirm each download
+    retrieves its own workbook.
+    """
+    conv_id = "test-conv-session-xyz"
+    user_id = "test-user-same-session"
+
+    art1 = await generate_workbook_from_request(
+        "Generate 10 rows and 5 columns of customer data",
+        conversation_id=conv_id,
+        user_id=user_id
+    )
+    art2 = await generate_workbook_from_request(
+        "Generate 25 rows and 8 columns of sales data",
+        conversation_id=conv_id,
+        user_id=user_id
+    )
+
+    assert art1["artifact_id"] != art2["artifact_id"]
+    assert art1["filename"] != art2["filename"]
+
+    rec1 = artifact_registry.get_artifact(art1["artifact_id"])
+    rec2 = artifact_registry.get_artifact(art2["artifact_id"])
+    assert rec1 is not None and rec2 is not None
+    assert rec1.conversation_id == conv_id
+    assert rec2.conversation_id == conv_id
+    assert rec1.data_row_count == 10
+    assert rec2.data_row_count == 25
+
+
+@pytest.mark.asyncio
+async def test_d_cross_session_isolation():
+    """
+    Test D — Cross-session isolation:
+    Ensure a user or session cannot access another user's private artifact.
+    """
+    user_alice = UserModel(id="alice-id", username="alice", email="alice@test.com", password_hash="h", salt="s", role="user")
+    user_bob = UserModel(id="bob-id", username="bob", email="bob@test.com", password_hash="h", salt="s", role="user")
+
+    art_alice = await generate_workbook_from_request(
+        "Create an Excel sheet with 15 rows and 10 columns of student data",
+        user_id=user_alice.id
+    )
+
+    # Alice can download her own artifact
+    resp_alice = await download_output_file(filename=art_alice["artifact_id"], current_user=user_alice)
+    assert resp_alice.status_code == 200
+
+    # Bob cannot download Alice's artifact (HTTP 403 Forbidden)
+    with pytest.raises(HTTPException) as exc_info:
+        await download_output_file(filename=art_alice["artifact_id"], current_user=user_bob)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_e_repeated_prompts_distinct_artifacts():
+    """
+    Test E — Repeated prompts:
+    Submit the same generation prompt twice. Verify each successful request
+    creates a distinct artifact unless the user explicitly requests reuse.
+    """
+    prompt = "Create an Excel sheet with 20 rows and 30 columns of student data."
+    art1 = await generate_workbook_from_request(prompt)
+    art2 = await generate_workbook_from_request(prompt)
+
+    assert art1["artifact_id"] != art2["artifact_id"]
+    assert art1["generation_request_id"] != art2["generation_request_id"]
+    assert art1["filename"] != art2["filename"]
+
+
+@pytest.mark.asyncio
+async def test_f_concurrent_requests():
+    """
+    Test F — Concurrent requests:
+    Generate two different workbooks concurrently and verify neither overwrites
+    or returns the other's file.
+    """
+    p1 = "Create an Excel sheet with 12 rows and 15 columns of student data."
+    p2 = "Create an Excel sheet with 28 rows and 10 columns of employee data."
+
+    art1, art2 = await asyncio.gather(
+        generate_workbook_from_request(p1),
+        generate_workbook_from_request(p2)
+    )
+
+    assert art1["artifact_id"] != art2["artifact_id"]
+    assert art1["filename"] != art2["filename"]
+    assert art1["data_row_count"] == 12
+    assert art1["data_column_count"] == 15
+    assert art2["data_row_count"] == 28
+    assert art2["data_column_count"] == 10
+
+    # Verify both files on disk
+    wb1 = openpyxl.load_workbook(os.path.join(settings.OUTPUT_DIR, art1["filename"]))
+    assert wb1.active.max_row == 13
+    assert wb1.active.max_column == 15
+    wb1.close()
+
+    wb2 = openpyxl.load_workbook(os.path.join(settings.OUTPUT_DIR, art2["filename"]))
+    assert wb2.active.max_row == 29
+    assert wb2.active.max_column == 10
+    wb2.close()
+
+
+@pytest.mark.asyncio
+async def test_g_download_integrity_openpyxl():
+    """
+    Test G — Download integrity:
+    Download the artifact through the actual backend endpoint and reopen the
+    downloaded bytes with openpyxl.
+    """
+    art = await generate_workbook_from_request("Create an Excel sheet with 20 rows and 30 columns of student data.")
+    resp = await download_output_file(filename=art["artifact_id"])
+    assert resp.status_code == 200
+
+    wb = openpyxl.load_workbook(resp.path, data_only=True)
+    ws = wb.active
+    assert ws.max_row == 21
+    assert ws.max_column == 30
+    wb.close()
+
+
+def test_h_invalid_input_limits():
+    """
+    Test H — Invalid input:
+    Verify that invalid or excessive dimensions produce a controlled error.
+    """
+    # 1. Negative dimensions trigger controlled error
+    with pytest.raises(ValueError) as exc_neg:
+        parse_excel_generation_request("Generate -10 rows and -5 columns of student data")
+    assert "Invalid dimensions" in str(exc_neg.value)
+
+    # 2. Excessive dimensions trigger controlled error
+    with pytest.raises(ValueError) as exc_overflow:
+        parse_excel_generation_request("Generate 999999 rows and 5000 columns of student data")
+    assert "exceeds maximum supported limit" in str(exc_overflow.value)
+
+    # 3. Safe supported dimensions parse successfully within bounds
+    p_safe = parse_excel_generation_request("Generate 500 rows and 25 columns of student data")
+    assert p_safe.data_rows == 500
+    assert p_safe.data_columns == 25
+
+
+def test_i_excel_analysis_regression():
+    """
+    Test I — Excel analysis regression:
+    Confirm that analyzing an uploaded workbook still reads the original workbook
+    rather than generating a new one.
+    """
+    analysis_queries = [
+        "Analyze my uploaded Excel workbook.",
+        "Calculate the average from my spreadsheet.",
+        "Explain the contents of an existing workbook.",
+        "What is the sum of column B in my uploaded file?"
+    ]
+    for q in analysis_queries:
+        assert is_excel_generation_request(q) is False, f"Query '{q}' should NOT route to excel_generation"
+
+
+def test_j_rag_regression():
+    """
+    Test J — RAG regression:
+    Confirm document-based queries do not accidentally trigger excel generation.
+    """
+    rag_queries = [
+        "What are the requirements in the uploaded project PDF?",
+        "Summarize section 2 of the contract document.",
+        "Who is the candidate according to the resume?"
+    ]
+    for q in rag_queries:
+        assert is_excel_generation_request(q) is False, f"Query '{q}' should NOT route to excel_generation"
+
+
+def test_k_web_search_regression():
+    """
+    Test K — Web-search regression:
+    Confirm current-information questions continue to use web search.
+    """
+    web_queries = [
+        "Find current information about stock prices of Apple and Microsoft.",
+        "Search the web for latest AI news today.",
+        "Research on the internet about current mortgage rates."
+    ]
+    for q in web_queries:
+        assert is_explicit_web_search_request(q) is True
+        assert is_excel_generation_request(q) is False
+
+
+def test_l_general_question_regression():
+    """
+    Test L — General-question regression:
+    Confirm 'What is Excel?' does not generate a workbook.
+    """
+    general_queries = [
+        "What is Excel?",
+        "Explain what Excel is and what it is used for.",
+        "How does a spreadsheet work?",
+        "What are formulas in spreadsheets?"
+    ]
+    for q in general_queries:
+        assert is_excel_generation_request(q) is False, f"Query '{q}' should NOT generate workbook"
+
+
+def test_m_formula_injection_defense():
+    """
+    Test M — Formula injection:
+    Confirm untrusted cell text is safely handled (CWE-1236).
+    """
+    dangerous_inputs = [
+        "=cmd|'/C calc'!A0",
+        "+2+5+cmd",
+        "-12345",
+        "@SUM(A1:A10)",
+        "\t=dangerous",
+        "\r+dangerous"
+    ]
+    for dangerous in dangerous_inputs:
+        sanitized = sanitize_cell_value(dangerous)
+        assert sanitized.startswith("'"), f"Dangerous input '{dangerous}' was not prefixed with apostrophe: '{sanitized}'"
+
+
