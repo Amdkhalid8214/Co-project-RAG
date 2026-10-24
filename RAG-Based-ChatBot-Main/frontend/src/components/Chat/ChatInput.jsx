@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 
 export default function ChatInput({
   inputMessage,
@@ -14,6 +14,9 @@ export default function ChatInput({
   setWebMode
 }) {
   const textareaRef = useRef(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+  const textBeforeSpeech = useRef("");
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -22,10 +25,119 @@ export default function ChatInput({
     }
   }, [inputMessage]);
 
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Safe to ignore if already stopping
+      }
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert(
+        "Speech Recognition is not supported by your browser. Please use Google Chrome, Microsoft Edge, or another Chromium-based browser."
+      );
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+
+      textBeforeSpeech.current = inputMessage || "";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        let accumulatedFinal = "";
+        let interimTranscript = "";
+
+        for (let i = 0; i < event.results.length; i++) {
+          const item = event.results[i];
+          const transcriptText = item[0].transcript;
+          if (item.isFinal) {
+            accumulatedFinal += transcriptText;
+          } else {
+            interimTranscript += transcriptText;
+          }
+        }
+
+        const speechText = (accumulatedFinal + interimTranscript).trim();
+        const base = textBeforeSpeech.current;
+
+        if (!base) {
+          setInputMessage(speechText);
+        } else {
+          const needsSpace =
+            !base.endsWith(" ") && !base.endsWith("\n") && speechText.length > 0;
+          setInputMessage(base + (needsSpace ? " " : "") + speechText);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition error:", event.error);
+        if (
+          event.error === "not-allowed" ||
+          event.error === "service-not-allowed"
+        ) {
+          alert(
+            "Microphone permission was denied. Please allow microphone access in your browser site settings."
+          );
+        }
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch (err) {
+      console.error("Failed to start speech recognition:", err);
+      setIsListening(false);
+    }
+  }, [inputMessage, setInputMessage, stopListening]);
+
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+    };
+  }, []);
+
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!isGenerating && inputMessage.trim()) {
+        if (isListening) {
+          stopListening();
+        }
         onSendMessage();
       }
     }
@@ -105,19 +217,20 @@ export default function ChatInput({
           </button>
 
           <button
-            className="btn-composer-mic"
-            title="Voice input"
+            className={`btn-composer-mic ${isListening ? "listening" : ""}`}
+            title={isListening ? "Listening... (Click to stop voice input)" : "Voice input (Click to speak)"}
             type="button"
-            onClick={() => {
-              alert("Voice recognition input active. Speak into your microphone.");
-            }}
+            onClick={toggleListening}
+            disabled={disabled || isGenerating}
+            aria-label={isListening ? "Stop voice input" : "Start voice input"}
           >
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill={isListening ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
               <line x1="12" y1="19" x2="12" y2="23" />
               <line x1="8" y1="23" x2="16" y2="23" />
             </svg>
+            {isListening && <span className="mic-live-pulse-dot" />}
           </button>
 
           {isGenerating ? (

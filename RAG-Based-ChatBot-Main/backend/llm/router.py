@@ -142,11 +142,10 @@ EXCEL_GEN_PATTERNS = [
     r"\b(?:create|generate|provide|give\s+me)\s+(?:a|an)?\s*(?:[a-zA-Z0-9_\-]+\s+){0,4}(?:excel\s+)?(?:sheet|spreadsheet|workbook|table)\b",
     # Structured tabular data requests without explicitly naming excel:
     # e.g. "Generate 50 student records with 12 columns"
-    # e.g. "Generate 50 rows of customer data"
-    # e.g. "Create 20 rows and 30 columns of student data"
-    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:data\s*)?rows?\b",
-    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:distinct\s*)?columns?\b",
-    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:students?|customers?|users?|employees?|patients?|products?|sales|tabular|data)?\s*records?\b",
+    # e.g. "Generate 4 roms and 4 columns of cricket players"
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:data\s*)?(?:rows?|roms?|rws?)\b",
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:distinct\s*)?(?:columns?|colums?|cols?)\b",
+    r"\b(?:create|generate|build|prepare|make|produce)\b.*\b\d+\s*(?:students?|customers?|users?|employees?|patients?|products?|sales|crick(?:et|er)s?|players?|politi(?:cians?|cs)|polictians?|tabular|data)?\s*(?:records?|rows?|roms?)\b",
     # Exporting data to XLSX / Excel / CSV
     r"\b(?:export\s+.*\b(?:to\s+\.?xlsx?|to\s+excel|to\s+spreadsheet|to\s+\.?csv))\b",
     # QA patterns

@@ -1617,11 +1617,53 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  transition: all 0.2s ease;
 }
 
 .btn-composer-mic:hover {
   color: var(--text-main);
   background-color: var(--bg-sidebar-hover);
+}
+
+.btn-composer-mic.listening {
+  color: #ef4444 !important;
+  background-color: rgba(239, 68, 68, 0.12) !important;
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+.mic-live-pulse-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  animation: mic-dot-blink 1s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+@keyframes mic-dot-blink {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.65);
+  }
 }
 
 /* Send Button (Blue circle matching Image 2) */

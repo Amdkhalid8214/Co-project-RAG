@@ -68,4 +68,5 @@
 - [ ] **Multi-Modal Vision LLM:** Add support for Qwen 2.5-VL / LLaVA to answer visual questions about charts and diagrams.
 - [ ] **Document Comparison Mode:** Allow scoping queries across 2 uploaded documents simultaneously with split-screen highlights.
 - [ ] **Conversation Export:** Export grounded chat transcripts to PDF or Markdown with embedded citations.
-- [ ] **Voice Input / TTS Output:** Add browser speech recognition and synthesis for audio interaction.
+- [x] **Voice Input (STT):** Browser Web Speech recognition integration with live transcript dictation directly into composer.
+- [ ] **TTS Output:** Synthetic audio playback for AI responses.

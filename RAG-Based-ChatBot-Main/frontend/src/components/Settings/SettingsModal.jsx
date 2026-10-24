@@ -32,6 +32,24 @@ export default function SettingsModal({
   const [activeTab, setActiveTab] = useState(initialTab);
   const [searchFilter, setSearchFilter] = useState("");
   const [saveToast, setSaveToast] = useState("");
+  const [testingMic, setTestingMic] = useState(false);
+
+  const handleTestAudio = async () => {
+    setTestingMic(true);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showToast("Microphone API not supported in this browser.");
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => track.stop());
+      showToast("Microphone access verified! Ready for speech-to-text.");
+    } catch (err) {
+      showToast("Mic check failed: " + (err.message || "Permission denied"));
+    } finally {
+      setTestingMic(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && initialTab) {
@@ -484,13 +502,14 @@ export default function SettingsModal({
               <div className="settings-card-row">
                 <div className="card-row-info">
                   <div className="card-row-label">Test Microphone</div>
-                  <div className="card-row-sub">Check browser WebAudio input levels.</div>
+                  <div className="card-row-sub">Check browser WebAudio input access and permissions.</div>
                 </div>
                 <button
                   className="btn-secondary-action"
-                  onClick={() => alert("Microphone access verified. Ready for speech input.")}
+                  onClick={handleTestAudio}
+                  disabled={testingMic}
                 >
-                  Test Audio
+                  {testingMic ? "Testing..." : "Test Audio"}
                 </button>
               </div>
             </div>

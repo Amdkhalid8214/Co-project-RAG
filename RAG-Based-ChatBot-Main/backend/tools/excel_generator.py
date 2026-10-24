@@ -11,7 +11,9 @@ Generates multi-sheet, beautifully styled, validated .xlsx workbooks with:
 
 import os
 import re
+import json
 import uuid
+import asyncio
 import logging
 from contextvars import ContextVar
 from pathlib import Path
@@ -156,11 +158,14 @@ def generate_dynamic_dataset_workbook(
     generation_request_id: Optional[str] = None,
     unique_filename: bool = True,
     context: Optional[str] = None,
+    custom_headers: Optional[List[str]] = None,
+    custom_rows: Optional[List[List[Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Generates a deterministic, beautifully styled, validated .xlsx workbook containing
     exactly `data_rows` data rows and `data_columns` distinct columns.
     Every generation creates a unique file with its own artifact ID to prevent stale reuse.
+    Supports ChatGPT-generated custom headers and custom rows when provided.
     """
     os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
@@ -176,7 +181,7 @@ def generate_dynamic_dataset_workbook(
     filename = f"{clean_prefix}_{art_id[:8]}.xlsx" if unique_filename else f"{clean_prefix}.xlsx"
     file_path = os.path.join(settings.OUTPUT_DIR, filename)
 
-    clean_title = title or ("Student Information" if "student" in dataset_type else "Dataset")
+    clean_title = title or ("Student Information" if "student" in dataset_type else dataset_type.replace("_", " ").title())
     sheet_title = re.sub(r"[\\/*?:\[\]]", "_", clean_title)[:31] or "Data"
 
     wb = openpyxl.Workbook()
@@ -185,7 +190,20 @@ def generate_dynamic_dataset_workbook(
     ws.views.sheetView[0].showGridLines = True
 
     # Get exactly safe_cols distinct columns
-    headers = get_columns_for_dataset(dataset_type, safe_cols)
+    if custom_headers and len(custom_headers) > 0:
+        headers = list(custom_headers[:safe_cols])
+        if len(headers) < safe_cols:
+            supp_cols = get_columns_for_dataset(dataset_type, safe_cols)
+            for sc in supp_cols:
+                if len(headers) >= safe_cols:
+                    break
+                if sc not in headers:
+                    headers.append(sc)
+            while len(headers) < safe_cols:
+                headers.append(f"Attribute {len(headers) + 1}")
+    else:
+        headers = get_columns_for_dataset(dataset_type, safe_cols)
+
     ws.append([sanitize_cell_value(h) for h in headers])
 
     # Styling Palettes
@@ -205,7 +223,15 @@ def generate_dynamic_dataset_workbook(
 
     # Populate exactly safe_rows rows
     for r in range(1, safe_rows + 1):
-        row_values = generate_row_for_dataset(dataset_type, headers, r)
+        if custom_rows and (r - 1) < len(custom_rows):
+            row_vals = list(custom_rows[r - 1][:safe_cols])
+            if len(row_vals) < safe_cols:
+                supp_vals = generate_row_for_dataset(dataset_type, headers[len(row_vals):], r)
+                row_vals.extend(supp_vals)
+            row_values = row_vals
+        else:
+            row_values = generate_row_for_dataset(dataset_type, headers, r)
+
         clean_row = [sanitize_cell_value(v) for v in row_values]
         ws.append(clean_row)
         curr_row = r + 1
@@ -275,7 +301,7 @@ def generate_dynamic_dataset_workbook(
         "application_name": clean_title,
         "reply_message": (
             f"Done, AMD! I generated the Excel workbook **{filename}** containing exactly "
-            f"{safe_rows} data rows and {safe_cols} distinct columns of {dataset_type.replace('_', ' ')}."
+            f"{safe_rows} data rows and {safe_cols} distinct columns of {clean_title}."
         )
     }
 
@@ -2069,6 +2095,105 @@ def extract_domain_and_fields(prompt: str) -> Dict[str, Any]:
     }
 
 
+async def generate_tabular_data_via_llm(
+    prompt: str,
+    topic: str,
+    data_rows: int,
+    data_columns: int,
+    context: Optional[str] = None,
+    timeout_seconds: float = 45.0
+) -> Optional[Dict[str, Any]]:
+    """
+    Invokes the local LLM (Ollama) to synthesize ChatGPT-grade authentic data rows
+    and appropriate column names matching any user-requested subject or domain.
+    """
+    try:
+        from backend.llm.client import ollama_client
+        clean_ctx = f"\nContext/Requirements: {context}" if context else ""
+        system_instruction = (
+            "You are an expert AI spreadsheet and tabular data generator like ChatGPT. "
+            "Your task is to generate realistic, accurate, domain-specific Excel datasets matching user requests."
+        )
+        llm_prompt = f"""The user wants to generate an Excel spreadsheet based on this request:
+"{prompt}"{clean_ctx}
+
+Target Topic / Domain: {topic}
+Dimensions required:
+- Exactly {data_rows} data rows
+- Exactly {data_columns} distinct columns
+
+Instructions:
+1. Identify the core subject/domain from the request (handling any misspellings like 'cricker playes' -> cricket players, 'polictians' -> politicians, 'roms' -> rows, 'colums' -> columns).
+2. Choose exactly {data_columns} domain-appropriate column headers.
+3. Generate exactly {data_rows} rows of REAL, FAMOUS, AUTHENTIC data for this domain.
+   - For cricket players: use real players (e.g. Virat Kohli, Sachin Tendulkar, Rohit Sharma, Steve Smith, MS Dhoni, Kane Williamson, etc.).
+   - For politicians: use real politicians (e.g. Barack Obama, Narendra Modi, Winston Churchill, Abraham Lincoln, etc.).
+   - For any other domain: use real, accurate, famous entities and appropriate metrics.
+   - NEVER use generic placeholder names like 'John Doe', 'Jane Smith', or 'Item 1'.
+4. Return ONLY a valid JSON object matching this schema:
+{{
+  "title": "{topic}",
+  "columns": ["Col 1", "Col 2", ...],
+  "rows": [
+    ["Val 1", "Val 2", ...],
+    ...
+  ]
+}}
+Do NOT output markdown fences (like ```json), do not include any commentary. Output raw JSON only.
+"""
+        response_text = await asyncio.wait_for(
+            ollama_client.generate_complete(prompt=llm_prompt, system=system_instruction, temperature=0.2),
+            timeout=timeout_seconds
+        )
+        if not response_text:
+            return None
+
+        # Clean response
+        clean_text = response_text.strip()
+        if clean_text.startswith("```"):
+            clean_text = re.sub(r"^```(?:json)?\s*", "", clean_text)
+            clean_text = re.sub(r"\s*```$", "", clean_text)
+
+        json_match = re.search(r"\{[\s\S]*\}", clean_text)
+        if not json_match:
+            return None
+
+        data = json.loads(json_match.group(0))
+        raw_cols = data.get("columns", [])
+        raw_rows = data.get("rows", [])
+
+        if not isinstance(raw_cols, list) or not isinstance(raw_rows, list) or not raw_cols or not raw_rows:
+            return None
+
+        columns = [str(c).strip() for c in raw_cols]
+        if len(columns) > data_columns:
+            columns = columns[:data_columns]
+        while len(columns) < data_columns:
+            columns.append(f"Attribute {len(columns) + 1}")
+
+        clean_rows = []
+        for r in raw_rows:
+            if isinstance(r, list):
+                row_vals = list(r)
+                if len(row_vals) > data_columns:
+                    row_vals = row_vals[:data_columns]
+                while len(row_vals) < data_columns:
+                    row_vals.append("")
+                clean_rows.append(row_vals)
+
+        if len(clean_rows) > data_rows:
+            clean_rows = clean_rows[:data_rows]
+
+        return {
+            "title": str(data.get("title", topic)).strip() or topic,
+            "columns": columns,
+            "rows": clean_rows
+        }
+    except Exception as e:
+        logger.warning(f"[EXCEL_GEN] LLM dynamic tabular generation skipped/failed: {repr(e)}")
+        return None
+
+
 async def generate_workbook_from_request(
     prompt: str,
     history: Optional[List[Dict[str, Any]]] = None,
@@ -2102,20 +2227,48 @@ async def generate_workbook_from_request(
         except Exception as e:
             logger.warning(f"[EXCEL_GEN] Web search lookup skipped: {e}")
 
-    # ROUTE 1: Tabular Synthetic Data Generation (e.g. 20 rows and 30 columns of student data)
+    # ROUTE 1: Tabular Synthetic / Real Data Generation (e.g. cricket players, politicians, student data)
     if not parsed.is_qa:
+        custom_headers = None
+        custom_rows = None
+        custom_title = parsed.title
+
+        # Determine whether to call LLM:
+        # Predefined datasets (student_data, customer_data, employee_data, sales_data, healthcare_data)
+        # use the fast deterministic engine to preserve existing unit tests.
+        # All custom, arbitrary, or specific topics (cricket, politicians, movies, tech, etc.) leverage LLM!
+        is_predefined = parsed.dataset_type in (
+            "student_data", "customer_data", "employee_data", "sales_data", "healthcare_data"
+        )
+        if not is_predefined and parsed.data_rows <= 30:
+            llm_result = await generate_tabular_data_via_llm(
+                prompt=clean_p,
+                topic=parsed.title or parsed.dataset_type,
+                data_rows=parsed.data_rows,
+                data_columns=parsed.data_columns,
+                context=context
+            )
+            if llm_result and llm_result.get("columns") and llm_result.get("rows"):
+                custom_headers = llm_result["columns"]
+                custom_rows = llm_result["rows"]
+                if llm_result.get("title"):
+                    custom_title = llm_result["title"]
+                logger.info(f"[EXCEL_GEN] LLM generated {len(custom_rows)} rows & {len(custom_headers)} cols for '{custom_title}'.")
+
         artifact = generate_dynamic_dataset_workbook(
             dataset_type=parsed.dataset_type,
             data_rows=parsed.data_rows,
             data_columns=parsed.data_columns,
-            title=parsed.title,
+            title=custom_title,
             filename_prefix=parsed.prefix,
             user_id=user_id,
             conversation_id=conversation_id,
             artifact_id=art_id,
             generation_request_id=gen_id,
             unique_filename=unique_filename,
-            context=context
+            context=context,
+            custom_headers=custom_headers,
+            custom_rows=custom_rows,
         )
         active_excel_artifact.set(artifact)
         return artifact

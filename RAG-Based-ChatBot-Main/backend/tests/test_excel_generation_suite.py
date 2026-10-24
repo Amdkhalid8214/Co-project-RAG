@@ -973,4 +973,74 @@ async def test_regression_8_download_endpoint_openpyxl_integrity():
     downloaded_wb.close()
 
 
+@pytest.mark.asyncio
+async def test_cricket_players_typos_and_authentic_data():
+    """
+    Verifies that requests like 'create an excel sheet of cricker playes of 4 roms and 4 columns'
+    generate authentic cricket players (not generic placeholder names like Emma Smith),
+    handles typos like 'cricker playes' and 'roms', and satisfies exact 4 rows and 4 columns.
+    """
+    prompt = "create an excel sheet of cricker playes of 4 roms and 4 columns"
+    artifact = await generate_workbook_from_request(prompt)
+
+    assert artifact["data_row_count"] == 4
+    assert artifact["data_column_count"] == 4
+    assert artifact["filename"].endswith(".xlsx")
+
+    file_path = os.path.join(settings.OUTPUT_DIR, artifact["filename"])
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    ws = wb.active
+    assert ws.max_row == 5  # 1 header + 4 rows
+    assert ws.max_column == 4
+
+    # Extract all text in workbook
+    all_text = []
+    for r in range(2, ws.max_row + 1):
+        for c in range(1, ws.max_column + 1):
+            all_text.append(str(ws.cell(row=r, column=c).value or ""))
+    wb.close()
+
+    full_content = " ".join(all_text).lower()
+
+    # Must NOT have default placeholder names
+    assert "emma smith" not in full_content
+    assert "liam johnson" not in full_content
+
+    # Must have real cricket entities
+    known_cricketers = ["virat", "kohli", "tendulkar", "sharma", "dhoni", "smith", "root", "williamson", "bumrah"]
+    assert any(c in full_content for c in known_cricketers), f"Generated content '{full_content}' did not contain known cricketers."
+
+
+@pytest.mark.asyncio
+async def test_politicians_typos_and_authentic_data():
+    """
+    Verifies that requests like 'make an excel sheet of polictians with 4 rows and 4 columns'
+    generate authentic politicians with real names, offices, parties, and proper dimensions.
+    """
+    prompt = "make an excel sheet of polictians with 4 rows and 4 columns"
+    artifact = await generate_workbook_from_request(prompt)
+
+    assert artifact["data_row_count"] == 4
+    assert artifact["data_column_count"] == 4
+
+    file_path = os.path.join(settings.OUTPUT_DIR, artifact["filename"])
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    ws = wb.active
+    assert ws.max_row == 5  # 1 header + 4 rows
+    assert ws.max_column == 4
+
+    all_text = []
+    for r in range(2, ws.max_row + 1):
+        for c in range(1, ws.max_column + 1):
+            all_text.append(str(ws.cell(row=r, column=c).value or ""))
+    wb.close()
+
+    full_content = " ".join(all_text).lower()
+    assert "emma smith" not in full_content
+
+    known_politicians = ["obama", "modi", "churchill", "lincoln", "mandela", "merkel", "macron"]
+    assert any(p in full_content for p in known_politicians), f"Generated content '{full_content}' did not contain known politicians."
+
+
+
 
